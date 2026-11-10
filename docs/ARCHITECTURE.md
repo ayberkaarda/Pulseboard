@@ -98,6 +98,8 @@ pulseboard/
 
 - Java 25, Spring Boot 4.1.x, Gradle Kotlin DSL, Spring Web MVC (not WebFlux), Spring Security with JWT (Nimbus JOSE), Spring Data JPA + Hibernate 7, Flyway, Bean Validation, springdoc-openapi, Micrometer + Prometheus registry, Testcontainers (PostgreSQL, Redis), ArchUnit for layering rules, MapStruct for DTO mapping.
 - Package root: `io.pulseboard.core`. Layering: `api` → `application` → `domain` ← `infrastructure`. `domain` has no Spring dependencies.
+- Sessions: a login creates a refresh-token family. Each refresh rotates the token inside the family and reuse of a rotated token revokes the family. A family also ends at an absolute lifetime counted from login (`REFRESH_FAMILY_TTL`, default 30 days): rotation never extends a token past it, and a refresh after it answers 401 and revokes the family.
+- `POST /api/v1/auth/logout` takes the refresh token, needs no valid access token and revokes its whole family. It is idempotent: an unknown or already revoked token is answered with the same 204. It shares the per-client rate limit of the other auth endpoints.
 
 #### analytics
 
