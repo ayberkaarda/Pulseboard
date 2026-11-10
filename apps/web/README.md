@@ -20,6 +20,7 @@ Visual identity, tokens, theming and screen layouts are documented in [DESIGN.md
 | `npm run api:generate`                    | Rewrites `src/app/api/generated/schema.d.ts` from `contracts/api-core.openapi.yaml`.                                                   |
 | `npm run api:check`                       | Fails when the checked-in schema differs from a fresh generation (CI drift check).                                                     |
 | `npm run typecheck`                       | `tsc --noEmit` over the app and the specs (the Jest builder does not type check).                                                      |
+| `node scripts/browser-audit.mjs`          | axe-core scan (light and dark) of the pages of a running stack; `BASE` is its origin. Needs system Chrome.                             |
 
 ## Structure
 
@@ -33,6 +34,32 @@ src/app/
 
 Routes are lazy and standalone: `/login`, `/register`, `/app/overview`, `/app/services/:id`,
 `/app/metrics/:id`, `/app/anomalies`, and a not-found page for everything else.
+
+## Live data and charts
+
+- **Anomaly stream** (`features/anomalies/anomaly-stream.service.ts`). One `EventSource` per tab, held by the pages that show
+  live data (`retain()`). Every connection attempt first asks `POST /api/v1/stream/ticket` for a one-time ticket, because a spent
+  ticket cannot be reused; the browser's own auto-reconnect is never used (the source is closed on the first error). Failures back off
+  1, 2, 4 ... 30 s with equal jitter; a ticket answered with 429 waits for `Retry-After`; 403, or three 401 in a row, ends the retries
+  ("Offline"). After every open the stores re-read `GET /api/v1/anomalies`, since missed events are not replayed. The source is
+  closed on logout, when no page needs it, and 5 minutes after the tab was hidden (it reconnects when visible again).
+- **Stores.** `AnomalyFeedStore` (filters, pages of 25, bounded at 500, dedupe by id, newest window first),
+  `ServiceHealthStore` (unacknowledged anomalies of the last hour for the overview tiles, indexed by service id),
+  `MetricsStore` (points and anomalies of one metric and range; the step is chosen so a query never exceeds 2000 buckets;
+  a new range cancels the old request). They share `AnomalyBus`, through which stream events, optimistic acknowledgements and
+  rollbacks reach every store.
+- **Health on the overview** follows the product spec: no unacknowledged anomaly in the last hour is healthy (circle), LOW or MEDIUM
+  is degraded (triangle), HIGH is down (square); a service with no metrics, or whose anomalies could not be read, shows "No data".
+- **Chart.** ECharts is imported only by `metric-chart.component.ts` through a dynamic import (its own chunk, loaded on the metric page).
+  `chart-options.ts` is a pure function from data and design tokens to the option; tokens are resolved in the browser
+  (`chart-tokens.ts`) and the option is rebuilt when the theme or the motion preference changes. The chart is `role="img"` with a
+  text summary, and the page repeats the numbers as text and as a table. No expected-range band is drawn: the API has none.
+
+## Accessibility and Lighthouse
+
+`node scripts/browser-audit.mjs` registers a throwaway workspace on a running stack, waits for the analytics service to produce
+anomalies and scans every page with axe-core in both colour schemes. Lighthouse CI is configured in `lighthouserc.json`
+(accessibility at least 0.9 on `/login` and `/register`): `npm run build && npx @lhci/cli autorun`.
 
 ## API client
 
