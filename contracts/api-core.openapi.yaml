@@ -638,7 +638,6 @@ paths:
           \ log or store it."
         in: query
         name: ticket
-        required: false
         schema:
           type: string
           maxLength: 43
