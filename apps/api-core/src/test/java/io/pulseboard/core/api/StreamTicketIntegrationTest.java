@@ -482,6 +482,36 @@ class StreamTicketIntegrationTest extends AnomalyIntegrationTest {
             String malformed = "not-a-ticket-" + UUID.randomUUID();
             tickets.add(malformed);
             openStream(port, "ticket=" + malformed).close();
+
+            // An encoded parameter name is the same parameter for the servlet, but not for a literal match.
+            String encodedWithHeader = issueTicket(port, tenant.ownerToken());
+            tickets.add(encodedWithHeader);
+            try (SseTestClient both = openStream(port, "ti%63ket=" + encodedWithHeader,
+                    "Authorization", bearerHeader(tenant.ownerToken()))) {
+                assertThat(both.status()).isEqualTo(401);
+            }
+            try (SseTestClient later = openWithTicket(port, encodedWithHeader)) {
+                // refused without consuming: the same ticket still works afterwards
+                assertThat(later.status()).isEqualTo(200);
+            }
+            String encoded = issueTicket(port, tenant.ownerToken());
+            tickets.add(encoded);
+            try (SseTestClient stream = openStream(port, "%74icket=" + encoded)) {
+                assertThat(stream.status()).isEqualTo(200);
+            }
+            String repeated = issueTicket(port, tenant.ownerToken());
+            tickets.add(repeated);
+            try (SseTestClient both = openStream(port, "ticket=" + repeated + "&%74icket=" + repeated)) {
+                assertThat(both.status()).isEqualTo(401);
+            }
+            String mixedCase = issueTicket(port, tenant.ownerToken());
+            tickets.add(mixedCase);
+            assertThat(statusOfGet(port, "/api/v1/stream/anomalies?TiCkEt=" + mixedCase)).isEqualTo(401);
+            assertThat(statusOfGet(port, "/api/v1/stream/anomalies?%54iCkEt=" + mixedCase)).isEqualTo(401);
+            String doubleEncoded = issueTicket(port, tenant.ownerToken());
+            tickets.add(doubleEncoded);
+            assertThat(statusOfGet(port, "/api/v1/stream/anomalies?%2574icket=" + doubleEncoded)).isEqualTo(401);
+            assertThat(statusOfGet(port, "/api/v1/stream/anomalies?%252574icket=" + doubleEncoded)).isEqualTo(401);
         } finally {
             root.setLevel(previous[0]);
             security.setLevel(previous[1]);
@@ -501,6 +531,7 @@ class StreamTicketIntegrationTest extends AnomalyIntegrationTest {
         assertThat(logged).doesNotContainPattern("ticket=[A-Za-z0-9_-]{20,}");
         // Request lines were logged with the value masked, so the redaction was exercised.
         assertThat(logged).contains("/api/v1/stream/anomalies?ticket=***");
+        assertThat(logged).containsPattern("(?:%74icket|ti%63ket)=\\*\\*\\*");
     }
 
     private String tokenExpiringAt(TenantFixture tenant, Instant expiry) {
