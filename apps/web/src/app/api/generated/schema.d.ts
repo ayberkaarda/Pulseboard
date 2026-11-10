@@ -222,11 +222,31 @@ export interface paths {
         };
         /**
          * Stream new anomalies
-         * @description Server-sent events (`text/event-stream`) for the caller's tenant only. Each anomaly is one event named `anomaly` whose `id` is the anomaly id and whose data is the Anomaly JSON document. A comment line `: ping` is sent every 30 seconds (configurable) while idle. Authenticated with the bearer access token only (a browser EventSource cannot set that header; use a fetch based client). The stream ends when the access token expires or after at most 30 minutes (configurable); reconnect with a fresh token. Events published while disconnected are not replayed: read GET /api/v1/anomalies after reconnecting. Limited per tenant and per instance (defaults 10 and 500).
+         * @description Server-sent events (`text/event-stream`) for the caller's tenant only. Each anomaly is one event named `anomaly` whose `id` is the anomaly id and whose data is the Anomaly JSON document. A comment line `: ping` is sent every 30 seconds (configurable) while idle. Authenticate with exactly one of: the bearer access token, or a one-time `ticket` query parameter from POST /api/v1/stream/ticket (for a browser EventSource, which cannot set the header). A request with both, or with an invalid, expired, malformed or already used ticket, is answered with the same 401; a ticket is used up even when the request is then refused (for example with 429), so request a new one for every connection attempt. Access tokens in the query string are not accepted. The stream ends when the access token (the one that requested the ticket, for ticket streams) expires or after at most 30 minutes (configurable); reconnect with a fresh token or ticket. Events published while disconnected are not replayed: read GET /api/v1/anomalies after reconnecting. Limited per tenant and per instance (defaults 10 and 500).
          */
         get: operations["stream"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/stream/ticket": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Issue a stream ticket
+         * @description Returns a one-time ticket for GET /api/v1/stream/anomalies?ticket=..., for clients that cannot send an Authorization header (a browser EventSource). The ticket is valid for 30 seconds (configurable) or until the access token expires, whichever is sooner, is bound to the caller's tenant and user, and can be used exactly once. The stream opened with it ends when the access token that requested the ticket expires. Only the SHA-256 digest of the ticket is stored. Limited to 30 tickets per user per minute. Requires a user access token; API keys are refused. The response is never cached.
+         */
+        post: operations["issueStreamTicket"];
         delete?: never;
         options?: never;
         head?: never;
@@ -535,6 +555,16 @@ export interface components {
             /** Format: uuid */
             id?: string;
             name?: string;
+        };
+        StreamTicketResponse: {
+            /**
+             * Format: int64
+             * @description Seconds the ticket can still be used
+             * @example 30
+             */
+            expiresInSeconds?: number;
+            /** @description Opaque one-time value for the `ticket` query parameter of the stream endpoint. 256 random bits, URL-safe base64 without padding. Shown once; never log or store it. */
+            ticket?: string;
         };
         TokenResponse: {
             accessToken?: string;
@@ -1181,7 +1211,10 @@ export interface operations {
     };
     stream: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description One-time stream ticket from POST /api/v1/stream/ticket, as an alternative to the Authorization header. Consumed by the request. Never log or store it. */
+                ticket?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -1197,7 +1230,7 @@ export interface operations {
                     "text/event-stream": string;
                 };
             };
-            /** @description Missing or invalid access token */
+            /** @description Missing or invalid credentials, both credentials at once, or an invalid ticket */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -1236,6 +1269,75 @@ export interface operations {
                 };
             };
             /** @description The message bus is unavailable */
+            503: {
+                headers: {
+                    /** @description Seconds until a retry can succeed */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    issueStreamTicket: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Ticket issued */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StreamTicketResponse"];
+                };
+            };
+            /** @description Missing or invalid access token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not authenticated as a user (for example an API key) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Too many tickets requested */
+            429: {
+                headers: {
+                    /** @description Seconds until a retry can succeed */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unexpected error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The ticket store or rate limiter is unavailable (fails closed) */
             503: {
                 headers: {
                     /** @description Seconds until a retry can succeed */
