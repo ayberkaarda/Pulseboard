@@ -195,10 +195,26 @@ mindmap
 
 ### 4.2 Detection
 
-1. APScheduler in `analytics` runs `score_all_metrics` every 60 seconds. A Redis lock (`SET NX PX 55000`) guarantees single execution.
-2. For each metric with points in the last 24 hours, the service loads the window, runs both detectors, writes `Anomaly` rows for windows scoring above threshold, and upserts `DetectorState`.
-3. New anomalies are posted to the `api-core` internal endpoint in batches, HMAC-signed, with three retries using exponential backoff.
-4. `api-core` publishes to Redis channel `anomalies:{tenantId}`. The SSE controller fans out to connected dashboards, and the alert engine evaluates `ANOMALY_SEVERITY` rules.
+1. APScheduler (in the `analytics` process, every 60 seconds) runs `score_all_metrics`. A Redis lock (`SET NX PX 55000`, owner token, compare-and-delete release) makes sure only one run is active; a run that finds the lock held is skipped.
+2. Metrics with at least one point in the last 24 hours are selected through the read-only role. For each one the last 24 hours are loaded and both detectors run. There is no cursor: every run re-scores the whole window, so late points are picked up automatically. A failure for one metric does not stop the others.
+3. Anomalies are written with the `analytics_writer` role using `INSERT ... ON CONFLICT (metric_id, detector, window_start, window_end) DO NOTHING RETURNING`. Only rows that were actually inserted are reported, so re-scoring the same window never produces duplicates or repeated notifications. `DetectorState` is upserted.
+4. The inserted anomalies are posted to `POST /internal/v1/anomalies/notify` in batches of at most 500, HMAC-signed, with three attempts and exponential backoff on network errors, 5xx and 429. A failed notification is logged and does not undo the stored anomalies; they stay visible through `GET /api/v1/anomalies`.
+5. `api-core` re-reads each announced id from the database and publishes what the database holds to the Redis channel `anomalies:{tenantId}`. Every `api-core` instance with a stream open for that tenant forwards the message to its SSE clients.
+
+```mermaid
+sequenceDiagram
+    participant S as analytics scheduler
+    participant DB as PostgreSQL
+    participant A as api-core
+    participant R as Redis
+    participant C as dashboard (SSE)
+    S->>DB: read last 24 h (analytics_reader)
+    S->>DB: insert anomalies (analytics_writer)
+    S->>A: POST /internal/v1/anomalies/notify (HMAC)
+    A->>DB: re-read ids with tenant
+    A->>R: PUBLISH anomalies:{tenantId}
+    R-->>C: event "anomaly" via api-core
+```
 
 ### 4.3 Alerting
 
@@ -221,3 +237,31 @@ mindmap
 - `score = 1 - normalised decision_function`; an anomaly is detected when `score >= 0.65`. Severity is assigned by tertiles of `[0.65, 1.0]`.
 
 Both detectors are pure functions over a `pandas.DataFrame` with a documented input schema. Unit tests use synthetic series with injected spikes, level shifts, and seasonal baselines.
+
+### 4.5 Internal endpoints and the anomaly stream
+
+#### Internal HMAC contract
+
+- Scope: `POST /internal/v1/anomalies/notify` on `api-core` (caller: `analytics`) and `POST /internal/v1/score` on `analytics`. Both sit on their own security chain; a JWT or an API key never authenticates them.
+- Header `X-Internal-Signature`: lowercase hex HMAC-SHA256 over the raw request body bytes, keyed with `INTERNAL_SHARED_SECRET`. The comparison is constant time. A missing, malformed or wrong signature is answered with 401.
+- Both services refuse to start when the secret is empty or shorter than 32 characters. The body size limit (`INTERNAL_MAX_BODY_BYTES`, default 512 KiB, 4 KiB on `analytics`) is enforced before the body is hashed. The secret and the signatures are never logged.
+- The signature covers the body only, there is no timestamp. This is acceptable because `notify` is idempotent: `api-core` ignores the tenant, metric and severity sent in the body, re-reads each id (with its tenant) from the database and publishes only what the database says. Unknown ids, or ids of another tenant, are counted in `unknown`. Nothing is inserted, so a replayed request only repeats a publish.
+- `/internal/` must never be exposed by the public reverse proxy. Inside the Docker network only `analytics` talks to it.
+
+#### Server-sent events
+
+`GET /api/v1/stream/anomalies` (JWT bearer header, tenant taken from the token only) sends an `anomaly` event per new anomaly with the anomaly id as the event id and the anomaly JSON as data, plus a `: ping` comment every 30 seconds. Limits: 5 streams per tenant and 500 per instance (429 above), 30 minutes maximum lifetime or token expiry, whichever comes first. Events are not replayed after a reconnect; clients read `GET /api/v1/anomalies` to catch up.
+
+A reverse proxy in front of this endpoint must:
+
+- use HTTP/1.1 to the upstream and keep the connection open (`proxy_http_version 1.1`, `Connection ""`);
+- disable buffering (`proxy_buffering off`, optionally `X-Accel-Buffering: no` upstream);
+- allow idle connections longer than the heartbeat (`proxy_read_timeout` of at least 60 s, 1 h is fine);
+- not compress `text/event-stream` (`gzip off` for this location);
+- forward the `Authorization` header.
+
+The bundled `apps/web/nginx.conf` does not have such a location yet; adding it is tracked for the frontend work (phase 4). Until then the stream is reachable through the proxy only with default buffering behaviour, and the end-to-end test talks to `api-core` directly.
+
+### 4.6 End-to-end check
+
+`make e2e` (`scripts/e2e/run.py`, Python standard library only) starts postgres, redis, `api-core` and `analytics` as the throwaway compose project `pulseboard-e2e` with generated secrets, ingests a noisy series with a spike, waits (at most 180 s) for the scheduler, and asserts the anomaly in REST and SSE, tenant isolation and the internal HMAC behaviour. The project is always removed afterwards; `make e2e-down` cleans up after an interrupted run.

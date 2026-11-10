@@ -10,7 +10,7 @@ Multi-tenant service-health and anomaly-analytics platform.
 | contracts | `contracts` | OpenAPI 3.1, JSON Schema |
 | infra | `infra` | Docker Compose, PostgreSQL 18, Redis 8 |
 
-Architecture notes live in `docs/ARCHITECTURE.md`; decisions in `docs/ADR/`.
+Architecture notes live in `docs/ARCHITECTURE.md`; decisions in `docs/ADR/`; accepted trade-offs in `docs/KNOWN_LIMITATIONS.md`. `make e2e` runs the full ingest-to-anomaly check in a throwaway Docker project.
 
 ## Prerequisites
 
