@@ -12,7 +12,7 @@ import {
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { ReactiveFormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
-import { MatFormFieldModule } from '@angular/material/form-field';
+import { MAT_FORM_FIELD_DEFAULT_OPTIONS, MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
@@ -77,6 +77,10 @@ type SaveProblem = 'conflict' | 'gone' | null;
     PageHeadComponent,
     SeverityGlyphComponent,
     SkeletonRowsComponent,
+  ],
+  providers: [
+    // Hints and errors may wrap; the next field moves down instead of being overlapped.
+    { provide: MAT_FORM_FIELD_DEFAULT_OPTIONS, useValue: { subscriptSizing: 'dynamic' } },
   ],
   templateUrl: './alert-rule-editor.page.html',
   styleUrl: './alert-rule-editor.page.scss',
