@@ -148,7 +148,7 @@ def test_insert_for_a_metric_of_another_tenant_is_rejected(
     assert _anomaly_count(owner) == 0
 
 
-def test_state_round_trip_and_upsert(owner: Engine, writer_engine: Engine) -> None:
+def test_state_round_trip_and_compare_and_set(owner: Engine, writer_engine: Engine) -> None:
     _, metric = seed_metric(owner, noisy(5))
     store = DetectorStateStore(writer_engine)
     assert store.get(metric, Detector.ISOLATION_FOREST) is None
@@ -157,16 +157,16 @@ def test_state_round_trip_and_upsert(owner: Engine, writer_engine: Engine) -> No
         trained_at=MOMENT + timedelta(hours=6), version=2, contamination=0.02, point_count=300
     )
 
-    store.upsert(metric, Detector.ISOLATION_FOREST, first)
+    assert store.compare_and_set(metric, Detector.ISOLATION_FOREST, first, expected_version=None)
     assert store.get(metric, Detector.ISOLATION_FOREST) == first
-    store.upsert(metric, Detector.ISOLATION_FOREST, second)
+    assert store.compare_and_set(metric, Detector.ISOLATION_FOREST, second, expected_version=1)
 
     assert store.get(metric, Detector.ISOLATION_FOREST) == second
     with owner.connect() as conn:
         params = conn.execute(text("SELECT params FROM detector_state")).scalar_one()
         rows = conn.execute(text("SELECT count(*) FROM detector_state")).scalar_one()
     assert rows == 1
-    assert set(params) == {"trained_at", "version", "contamination", "point_count"}
+    assert set(params) == {"trained_at", "version", "contamination", "point_count", "data_hash"}
     assert params["version"] == 2
     assert params["contamination"] == 0.02
 

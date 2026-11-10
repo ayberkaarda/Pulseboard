@@ -18,8 +18,9 @@ depend on the unit of the metric. Standardised features are clipped to +/-``_CLI
 The functions are deterministic: the forest uses ``random_state=42``.
 """
 
+import hashlib
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import numpy as np
 import pandas as pd
@@ -60,11 +61,27 @@ class ForestState:
     version: int
     contamination: float
     point_count: int
+    data_hash: str = ""
+
+    @property
+    def identity(self) -> str:
+        """Content identity of the snapshot: ``trained_at``, observation count and data hash.
+
+        Two processes hold the same model snapshot exactly when their identities are equal; the
+        version number alone says nothing about the training data.
+        """
+        stamp = self.trained_at.astimezone(UTC).isoformat()
+        return f"{stamp}|{self.point_count}|{self.data_hash}"
 
 
 @dataclass(frozen=True)
 class TrainedForest:
-    """A fitted forest with the decision function range used for normalisation."""
+    """A fitted forest with the decision function range used for normalisation.
+
+    ``local`` marks a forest that was refitted for use in this process only because another
+    process persisted the snapshot of record; it carries that snapshot's version (``state``) but
+    never claims it, and ``adopted`` is the identity of the persisted snapshot it stands in for.
+    """
 
     model: IsolationForest
     center: np.ndarray
@@ -72,6 +89,22 @@ class TrainedForest:
     decision_min: float
     decision_max: float
     state: ForestState
+    local: bool = False
+    adopted: str = ""
+
+    @property
+    def persisted_identity(self) -> str:
+        """Identity of the persisted snapshot this forest corresponds to."""
+        return self.adopted if self.local else self.state.identity
+
+
+def data_hash(frame: pd.DataFrame) -> str:
+    """SHA-256 over the timestamps and values of ``frame`` (the training data identity)."""
+    digest = hashlib.sha256()
+    stamps = frame["ts"].dt.tz_convert("UTC").dt.tz_localize(None).astype("datetime64[ns]")
+    digest.update(stamps.to_numpy().astype("int64").tobytes())
+    digest.update(frame["value"].to_numpy(dtype="float64").tobytes())
+    return digest.hexdigest()
 
 
 def severity_for_score(score: float) -> Severity | None:
@@ -91,13 +124,21 @@ def needs_retrain(
     """Decide whether the forest must be refitted.
 
     True without a persisted state, without an in-memory model, when the model is at least
-    6 hours old, or when the point count grew by at least 20 % since training.
+    6 hours old, or when the raw observation count grew by at least 20 % since training
+    (``point_count`` is the raw count, not the number of buckets of a downsampled window).
     """
     if state is None or not model_available:
         return True
     if now - state.trained_at >= RETRAIN_INTERVAL:
         return True
     return point_count >= state.point_count * RETRAIN_GROWTH
+
+
+def observation_count(frame: pd.DataFrame) -> int:
+    """Raw observations behind ``frame``: its ``raw_points`` sum when bucketed, else its length."""
+    if "raw_points" in frame.columns:
+        return int(frame["raw_points"].sum())
+    return len(frame)
 
 
 def is_trainable(frame: pd.DataFrame) -> bool:
@@ -157,7 +198,8 @@ def train(frame: pd.DataFrame, *, trained_at: datetime, version: int) -> Trained
             trained_at=trained_at,
             version=version,
             contamination=CONTAMINATION,
-            point_count=len(frame),
+            point_count=observation_count(frame),
+            data_hash=data_hash(frame),
         ),
     )
 
@@ -171,6 +213,13 @@ def anomaly_scores(frame: pd.DataFrame, forest: TrainedForest) -> np.ndarray:
         return np.zeros(len(frame))
     normalised = np.clip((decision - forest.decision_min) / span, 0.0, 1.0)
     return np.asarray(1.0 - normalised, dtype=np.float64)
+
+
+def _details(value: float, forest: TrainedForest) -> dict[str, float | int | str | bool]:
+    if forest.local:
+        # A local stand-in must not be reported as the persisted version.
+        return {"value": value, "model_local": True}
+    return {"value": value, "model_version": forest.state.version}
 
 
 def detect(frame: pd.DataFrame, forest: TrainedForest) -> list[DetectorResult]:
@@ -193,10 +242,7 @@ def detect(frame: pd.DataFrame, forest: TrainedForest) -> list[DetectorResult]:
                 window_end=ts,
                 score=score,
                 severity=severity,
-                details={
-                    "value": float(frame["value"].iloc[index]),
-                    "model_version": forest.state.version,
-                },
+                details=_details(float(frame["value"].iloc[index]), forest),
             )
         )
     return results

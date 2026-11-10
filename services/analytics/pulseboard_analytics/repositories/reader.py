@@ -65,7 +65,9 @@ class MetricReader:
             row = conn.execute(stmt).one_or_none()
         return None if row is None else MetricRef(id=row.id, tenant_id=row.tenant_id)
 
-    def active_metrics(self, since: datetime, until: datetime) -> list[MetricRef]:
+    def active_metrics(
+        self, since: datetime, until: datetime, budget: Budget | None = None
+    ) -> list[MetricRef]:
         """Metrics with at least one point in ``[since, until]``; later points do not count."""
         has_point = exists().where(
             metric_point.c.metric_id == metric_definition.c.id,
@@ -78,6 +80,7 @@ class MetricReader:
             .order_by(metric_definition.c.id)
         )
         with self._engine.connect() as conn:
+            apply_budget(conn, budget)
             rows = conn.execute(stmt).all()
         return [MetricRef(id=row.id, tenant_id=row.tenant_id) for row in rows]
 

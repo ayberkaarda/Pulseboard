@@ -10,6 +10,7 @@ import pytest
 from redis import Redis
 from sqlalchemy import Engine, text
 
+from pulseboard_analytics.budget import Budget
 from pulseboard_analytics.clients.api_core import NotifyResult
 from pulseboard_analytics.detectors import isolation_forest, zscore
 from pulseboard_analytics.detectors.base import Detector
@@ -49,7 +50,7 @@ class Recorder:
     def __init__(self) -> None:
         self.calls: list[list[StoredAnomaly]] = []
 
-    def notify(self, anomalies: list[StoredAnomaly]) -> NotifyResult:
+    def notify(self, anomalies: list[StoredAnomaly], budget: Budget | None = None) -> NotifyResult:
         self.calls.append(list(anomalies))
         return NotifyResult(delivered=len(anomalies), failed=0)
 
@@ -172,7 +173,7 @@ class _CountingScorer(MetricScorer):
     delivered_before: list[int]
     recorder: Recorder
 
-    def score_metric(self, metric: MetricRef) -> ScoreOutcome:
+    def score_metric(self, metric: MetricRef, budget: Budget | None = None) -> ScoreOutcome:
         self.delivered_before.append(sum(len(c) for c in self.recorder.calls))
         return ScoreOutcome(results=[], inserted=[_fake_anomaly(metric) for _ in range(300)])
 
@@ -207,7 +208,9 @@ def test_a_crashing_notifier_keeps_the_stored_rows(
     _seed_ref(owner)
 
     class Crashing:
-        def notify(self, anomalies: list[StoredAnomaly]) -> NotifyResult:
+        def notify(
+            self, anomalies: list[StoredAnomaly], budget: Budget | None = None
+        ) -> NotifyResult:
             raise RuntimeError("down")
 
     summary = _run_all(
@@ -228,7 +231,7 @@ class _Probe(MetricScorer):
     seen: list[uuid.UUID]
     hook: object = None
 
-    def score_metric(self, metric: MetricRef) -> ScoreOutcome:
+    def score_metric(self, metric: MetricRef, budget: Budget | None = None) -> ScoreOutcome:
         self.seen.append(metric.id)
         if len(self.seen) == 1 and callable(self.hook):
             self.hook()
@@ -328,8 +331,10 @@ class _SlowStates(DetectorStateStore):
 
     barrier: threading.Barrier
 
-    def get(self, metric_id: uuid.UUID, detector: Detector) -> isolation_forest.ForestState | None:
-        state = super().get(metric_id, detector)
+    def get(
+        self, metric_id: uuid.UUID, detector: Detector, budget: Budget | None = None
+    ) -> isolation_forest.ForestState | None:
+        state = super().get(metric_id, detector, budget)
         try:
             self.barrier.wait(timeout=0.5)
         except threading.BrokenBarrierError:
@@ -383,7 +388,7 @@ def test_concurrent_scoring_of_one_metric_trains_exactly_once(
     assert _rows(owner, "SELECT version FROM detector_state") == [(1,)]
 
 
-def test_state_writes_never_move_the_version_backwards(
+def test_state_writes_are_compare_and_set_and_never_move_the_version_backwards(
     owner: Engine, writer_engine: Engine
 ) -> None:
     metric = _seed_ref(owner, seasonal(80)).id
@@ -395,10 +400,15 @@ def test_state_writes_never_move_the_version_backwards(
             trained_at=when, version=version, contamination=0.02, point_count=points
         )
 
-    assert store.upsert(metric, Detector.ISOLATION_FOREST, state(3, 300))
-    assert not store.upsert(metric, Detector.ISOLATION_FOREST, state(2, 200))
-    assert not store.upsert(metric, Detector.ISOLATION_FOREST, state(3, 999))
-    assert store.upsert(metric, Detector.ISOLATION_FOREST, state(4, 400))
+    detector = Detector.ISOLATION_FOREST
+    assert store.compare_and_set(metric, detector, state(3, 300), expected_version=None)
+    # a second inserter based on "no row" lost
+    assert not store.compare_and_set(metric, detector, state(1, 100), expected_version=None)
+    # writers that read an older version than the stored one lost as well
+    assert not store.compare_and_set(metric, detector, state(2, 200), expected_version=1)
+    assert not store.compare_and_set(metric, detector, state(3, 999), expected_version=2)
+    assert store.compare_and_set(metric, detector, state(4, 400), expected_version=3)
+    assert not store.compare_and_set(metric, detector, state(4, 401), expected_version=3)
 
     stored = store.get(metric, Detector.ISOLATION_FOREST)
     assert stored is not None
@@ -429,13 +439,16 @@ def test_a_stale_cached_model_is_replaced_when_another_worker_persisted_a_newer_
         conn.execute(
             text(
                 "UPDATE detector_state SET version = 5, "
-                "params = jsonb_set(params, '{version}', '5')"
+                "params = jsonb_set(jsonb_set(params, '{version}', '5'), "
+                "'{data_hash}', '\"other\"')"
             )
         )
 
     slow.score_metric(metric)
 
+    # another snapshot of record: this process refits locally, carrying but not claiming v5
     assert slow._forests[metric.id].state.version == 5
+    assert slow._forests[metric.id].local
     assert _rows(owner, "SELECT version FROM detector_state") == [(5,)]
 
 

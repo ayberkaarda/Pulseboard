@@ -59,6 +59,8 @@ class Settings:
     score_deadline_seconds: int = 50
     forest_cache_max: int = 256
     verify_db_roles: bool = True
+    metric_lock_timeout_seconds: int = 10
+    lease_margin_seconds: int = 5
 
     def __post_init__(self) -> None:
         # Same rule as api-core: not blank, and long enough once surrounding whitespace is gone.
@@ -71,6 +73,8 @@ class Settings:
             )
         if self.score_deadline_seconds * 1000 >= self.lock_ttl_ms:
             raise SettingsError("SCORE_DEADLINE_SECONDS must be shorter than SCORE_LOCK_TTL_MS")
+        if self.lease_margin_seconds * 1000 >= self.lock_ttl_ms:
+            raise SettingsError("SCORE_LEASE_MARGIN_SECONDS must be shorter than SCORE_LOCK_TTL_MS")
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> Settings:
@@ -88,4 +92,6 @@ class Settings:
             score_deadline_seconds=_positive_int(source, "SCORE_DEADLINE_SECONDS", 50),
             forest_cache_max=_positive_int(source, "FOREST_CACHE_MAX", 256),
             verify_db_roles=_flag(source, "VERIFY_DB_ROLES", True),
+            metric_lock_timeout_seconds=_positive_int(source, "METRIC_LOCK_TIMEOUT_SECONDS", 10),
+            lease_margin_seconds=_positive_int(source, "SCORE_LEASE_MARGIN_SECONDS", 5),
         )
