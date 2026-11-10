@@ -12,6 +12,8 @@ import java.util.UUID;
  * reads them and records who acknowledged them.
  *
  * @param serviceId service that owns the metric
+ * @param metricName name of the metric, joined in by the repository
+ * @param serviceName name of the owning service, joined in by the repository
  * @param details detector specific JSON object, never {@code null}
  * @param acknowledgedBy user that acknowledged the anomaly; {@code null} when it was not acknowledged yet or the
  *     user has been deleted since
@@ -23,6 +25,8 @@ public record Anomaly(
         TenantId tenantId,
         UUID metricId,
         UUID serviceId,
+        String metricName,
+        String serviceName,
         Instant windowStart,
         Instant windowEnd,
         double score,
@@ -38,6 +42,8 @@ public record Anomaly(
         Objects.requireNonNull(tenantId, "tenantId");
         Objects.requireNonNull(metricId, "metricId");
         Objects.requireNonNull(serviceId, "serviceId");
+        Objects.requireNonNull(metricName, "metricName");
+        Objects.requireNonNull(serviceName, "serviceName");
         Objects.requireNonNull(windowStart, "windowStart");
         Objects.requireNonNull(windowEnd, "windowEnd");
         Objects.requireNonNull(detector, "detector");

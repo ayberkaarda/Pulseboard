@@ -16,6 +16,8 @@ record AnomalyMessage(
         UUID tenantId,
         UUID metricId,
         UUID serviceId,
+        String metricName,
+        String serviceName,
         Instant windowStart,
         Instant windowEnd,
         double score,
@@ -28,6 +30,7 @@ record AnomalyMessage(
 
     static AnomalyMessage of(Anomaly anomaly) {
         return new AnomalyMessage(anomaly.id(), anomaly.tenantId().value(), anomaly.metricId(), anomaly.serviceId(),
+                anomaly.metricName(), anomaly.serviceName(),
                 anomaly.windowStart(), anomaly.windowEnd(), anomaly.score(), anomaly.detector(), anomaly.severity(),
                 anomaly.details(), anomaly.createdAt(), anomaly.acknowledgedBy(), anomaly.acknowledgedAt());
     }

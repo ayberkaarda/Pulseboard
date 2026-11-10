@@ -35,11 +35,13 @@ import tools.jackson.databind.json.JsonMapper;
 public class JdbcAnomalyRepository implements AnomalyRepository {
 
     private static final String SELECT = """
-            SELECT a.id, a.tenant_id, a.metric_id, m.service_id, a.window_start, a.window_end, a.score,
+            SELECT a.id, a.tenant_id, a.metric_id, m.service_id, m.name AS metric_name,
+                   s.name AS service_name, a.window_start, a.window_end, a.score,
                    a.detector, a.severity, a.details::text AS details, a.created_at, a.acknowledged_by,
                    a.acknowledged_at
               FROM anomaly a
               JOIN metric_definition m ON m.id = a.metric_id AND m.tenant_id = a.tenant_id
+              JOIN service s ON s.id = m.service_id AND s.tenant_id = m.tenant_id
             """;
     private static final String COUNT = """
             SELECT count(*)
@@ -133,6 +135,8 @@ public class JdbcAnomalyRepository implements AnomalyRepository {
                 TenantId.of(rs.getObject("tenant_id", UUID.class)),
                 rs.getObject("metric_id", UUID.class),
                 rs.getObject("service_id", UUID.class),
+                rs.getString("metric_name"),
+                rs.getString("service_name"),
                 rs.getObject("window_start", OffsetDateTime.class).toInstant(),
                 rs.getObject("window_end", OffsetDateTime.class).toInstant(),
                 rs.getDouble("score"),

@@ -24,6 +24,9 @@ public final class AnomalyDtos {
             @Schema(requiredMode = REQUIRED) UUID tenantId,
             @Schema(requiredMode = REQUIRED) UUID metricId,
             @Schema(requiredMode = REQUIRED, description = "Service that owns the metric.") UUID serviceId,
+            @Schema(requiredMode = REQUIRED, description = "Name of the metric.") String metricName,
+            @Schema(requiredMode = REQUIRED, description = "Name of the service that owns the metric.")
+            String serviceName,
             @Schema(requiredMode = REQUIRED, description = "Inclusive start of the scored window.") Instant windowStart,
             @Schema(requiredMode = REQUIRED, description = "End of the scored window.") Instant windowEnd,
             @Schema(requiredMode = REQUIRED,
