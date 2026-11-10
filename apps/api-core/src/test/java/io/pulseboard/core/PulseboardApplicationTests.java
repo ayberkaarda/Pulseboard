@@ -2,31 +2,33 @@ package io.pulseboard.core;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.pulseboard.core.support.IntegrationTest;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureRestTestClient;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
-import org.springframework.test.context.ActiveProfiles;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.client.RestTestClient;
 
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@AutoConfigureRestTestClient
-@ActiveProfiles("test")
-@Import(TestcontainersConfiguration.class)
-class PulseboardApplicationTests {
+class PulseboardApplicationTests extends IntegrationTest {
 
-    @Autowired
-    private RestTestClient restTestClient;
+    @Value("${local.management.port}")
+    private int managementPort;
 
-    @Test
-    void contextLoads() {
-        assertThat(restTestClient).isNotNull();
+    private RestTestClient management;
+
+    @BeforeEach
+    void managementClient() {
+        management = RestTestClient.bindToServer().baseUrl("http://localhost:" + managementPort).build();
     }
 
     @Test
-    void healthEndpointIsPublicAndUp() {
-        restTestClient.get()
+    void contextLoads() {
+        assertThat(client).isNotNull();
+    }
+
+    @Test
+    void healthEndpointIsPublicAndUpOnTheManagementPort() {
+        management.get()
                 .uri("/actuator/health")
                 .exchange()
                 .expectStatus().isOk()
@@ -38,10 +40,24 @@ class PulseboardApplicationTests {
     }
 
     @Test
-    void protectedEndpointsRequireAuthentication() {
-        restTestClient.get()
+    void prometheusIsServedOnlyOnTheManagementPort() {
+        management.get().uri("/actuator/prometheus").exchange()
+                .expectStatus().isOk()
+                .expectBody(String.class)
+                .value(body -> assertThat(body).contains("jvm_"));
+        client.get().uri("/actuator/prometheus").exchange().expectStatus().isNotFound();
+        client.get().uri("/actuator/health").exchange().expectStatus().isNotFound();
+    }
+
+    @Test
+    void protectedEndpointsRequireAuthenticationAndAnswerWithProblemDetails() {
+        client.get()
                 .uri("/api/v1/tenants")
                 .exchange()
-                .expectStatus().isUnauthorized();
+                .expectStatus().isUnauthorized()
+                .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
+                .expectBody()
+                .jsonPath("$.status").isEqualTo(401)
+                .jsonPath("$.title").isEqualTo("Unauthorized");
     }
 }

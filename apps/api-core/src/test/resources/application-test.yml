@@ -1,0 +1,12 @@
+# Test-profile overrides. Kept under src/test so none of these values ship in the application jar.
+pulseboard:
+  security:
+    jwt:
+      # Random per test JVM: two 32-hex-character random values give a 64-byte HS256 key.
+      secret: ${random.value}${random.value}
+  rate-limit:
+    auth:
+      # Every test request comes from the loopback address, so the per-client bucket is effectively disabled
+      # here; AuthClientRateLimitIntegrationTest covers it with its own small limit. The per-account limit
+      # keeps its production value.
+      client-capacity: 1000000
