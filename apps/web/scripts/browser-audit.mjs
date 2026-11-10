@@ -4,8 +4,9 @@
 //
 // It registers a throwaway workspace through the API, creates a service and a metric, ingests a
 // series with a spike and waits (with a deadline, no blind sleeps) until the analytics service has
-// produced anomalies, then scans /login, /register, /app/overview, /app/anomalies and
-// /app/metrics/:id in the light and the dark colour scheme. The exit code is 1 when axe reports a
+// produced anomalies, then scans /login, /register, /app/overview, /app/anomalies,
+// /app/metrics/:id and the alert pages (rules, history with an event dialog, the rule editor for both
+// conditions, a delete confirmation) in the light and the dark colour scheme. The exit code is 1 when axe reports a
 // violation. System Chrome is used (CHROME_CHANNEL, default "chrome").
 //
 // VIEWPORT_WIDTH (default 1280) sets the browser width, so the narrow layout can be scanned with 390.
@@ -58,6 +59,34 @@ async function seed() {
     body: { name: 'latency.p95', unit: 'ms', aggregation: 'AVG' },
   });
   const key = await api('POST', '/api/v1/api-keys', { token, body: { name: 'audit' } });
+  // The rules exist before the points, so the spike raises an alert (EMAIL_LOG needs no receiver).
+  const rule = await api('POST', '/api/v1/alert-rules', {
+    token,
+    body: {
+      name: 'Latency above 300 ms',
+      metricId: metric.body.id,
+      condition: 'THRESHOLD',
+      operator: 'GT',
+      threshold: 300,
+      cooldownSeconds: 60,
+      channel: 'EMAIL_LOG',
+      target: 'oncall@example.com',
+    },
+  });
+  if (rule.status !== 201) throw new Error(`alert rule failed: ${rule.status}`);
+  await api('POST', '/api/v1/alert-rules', {
+    token,
+    body: {
+      name: 'Any serious anomaly',
+      metricId: metric.body.id,
+      condition: 'ANOMALY_SEVERITY',
+      minSeverity: 'LOW',
+      cooldownSeconds: 300,
+      channel: 'EMAIL_LOG',
+      target: 'oncall@example.com',
+      enabled: false,
+    },
+  });
   const end = Date.now() - 30_000;
   const points = Array.from({ length: POINTS }, (_, i) => ({
     metricId: metric.body.id,
@@ -81,13 +110,24 @@ async function seed() {
     if (anomalies > 0) break;
     await new Promise((resolve) => setTimeout(resolve, 3000));
   }
-  console.log(`seeded: ${anomalies} anomalies after ${Math.round((Date.now() - started) / 1000)}s`);
+  // The dispatcher delivers the threshold alert within seconds.
+  let alerts = 0;
+  while (Date.now() - started < DEADLINE_MS) {
+    const events = await api('GET', '/api/v1/alert-events?status=SENT', { token });
+    alerts = events.body?.totalItems ?? 0;
+    if (alerts > 0) break;
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+  }
+  console.log(
+    `seeded: ${anomalies} anomalies, ${alerts} delivered alerts after ${Math.round((Date.now() - started) / 1000)}s`,
+  );
   return {
     email,
     password,
     slug: `audit-${suffix}`,
     serviceId: service.body.id,
     metricId: metric.body.id,
+    ruleId: rule.body.id,
   };
 }
 
@@ -154,6 +194,38 @@ try {
     await scan(page, '/app/metrics/:id', scheme, results);
     await page.getByRole('button', { name: 'Show data table' }).click();
     await scan(page, '/app/metrics/:id with table', scheme, results);
+
+    await page.goto(`${BASE}/app/alerts/rules`);
+    await page.getByRole('list', { name: 'Alert rules', exact: true }).waitFor();
+    await scan(page, '/app/alerts/rules', scheme, results);
+    await page.getByRole('button', { name: 'Delete Latency above 300 ms' }).click();
+    await page.getByRole('dialog').waitFor();
+    await scan(page, '/app/alerts/rules delete confirmation', scheme, results);
+    await page.getByRole('button', { name: 'Cancel' }).click();
+
+    await page.goto(`${BASE}/app/alerts/history`);
+    await page.getByRole('list', { name: 'Alert events', exact: true }).waitFor();
+    await scan(page, '/app/alerts/history', scheme, results);
+    await page
+      .getByRole('button', { name: /^Details of/ })
+      .first()
+      .click();
+    await page.getByRole('dialog').waitFor();
+    await scan(page, '/app/alerts/history event details', scheme, results);
+    await page.keyboard.press('Escape');
+
+    await page.goto(`${BASE}/app/alerts/rules/new`);
+    await page.getByLabel('Rule name').waitFor();
+    await scan(page, '/app/alerts/rules/new', scheme, results);
+    await page.getByRole('radio', { name: 'An anomaly reaches a severity' }).check();
+    await scan(page, '/app/alerts/rules/new anomaly severity', scheme, results);
+
+    await page.goto(`${BASE}/app/alerts/rules/${seeded.ruleId}`);
+    await page.getByLabel('Rule name').waitFor();
+    await page.waitForFunction(
+      () => document.querySelector('input[formcontrolname="name"]')?.value,
+    );
+    await scan(page, '/app/alerts/rules/:id', scheme, results);
     await context.close();
   }
 } finally {
