@@ -78,3 +78,62 @@ def test_huge_series_gives_the_same_forest_result_as_the_unit_series() -> None:
     values[200] += 80.0
 
     assert _forest_signature(values * 1e100) == _forest_signature(values)
+
+
+# --- flat rule: range based, a few ulps of the magnitude ---------------------------------------
+
+
+def _offset_series(offset: float, spike: float) -> np.ndarray:
+    values = offset + noisy(300, level=0.0, sigma=1.0)
+    values[250] += spike
+    return values
+
+
+@pytest.mark.parametrize("offset", [1e9, 1e12])
+def test_a_huge_offset_with_a_small_variance_is_not_flat(offset: float) -> None:
+    frame = make_frame(_offset_series(offset, spike=100.0))
+    spike_ts = frame["ts"].iloc[250].to_pydatetime()
+
+    assert iforest.is_trainable(frame)
+    hits = {r.window_start: r for r in zscore.detect(frame)}
+    assert hits[spike_ts].severity is Severity.HIGH
+
+
+def test_the_offset_series_behaves_like_the_series_without_offset() -> None:
+    centred = _zscore_signature(_offset_series(0.0, spike=100.0))
+    shifted = _zscore_signature(_offset_series(1e12, spike=100.0))
+
+    assert centred
+    assert [ts for ts, _ in shifted] == [ts for ts, _ in centred]
+
+
+@pytest.mark.parametrize("level", [0.0, 3.0, -7.5, 1e12, 1e-300, 5e-324])
+def test_a_constant_series_is_flat_including_zero_mean_and_subnormal_levels(level: float) -> None:
+    frame = make_frame([level] * 300)
+
+    assert zscore.detect(frame) == []
+    assert not iforest.is_trainable(frame)
+
+
+def test_a_zero_mean_series_with_variance_is_not_flat() -> None:
+    values = np.tile([-1.0, 1.0], 150)
+    values[250] = 40.0
+
+    assert iforest.is_trainable(make_frame(values))
+    assert zscore.detect(make_frame(values))
+
+
+def test_subnormal_scale_noise_is_not_flat() -> None:
+    # Values that differ by whole subnormal steps vary; ulp based rule must not call them flat.
+    rng = np.random.default_rng(1)
+    values = rng.integers(1, 1000, 300) * 5e-324
+
+    assert not iforest.is_flat(make_frame(values)["value"])
+
+
+def test_noise_around_a_constant_that_is_within_a_few_ulps_is_flat() -> None:
+    base = 1e6
+    values = base + np.arange(300) % 3 * np.spacing(base)
+
+    assert iforest.is_flat(make_frame(values)["value"])
+    assert zscore.detect(make_frame(values)) == []

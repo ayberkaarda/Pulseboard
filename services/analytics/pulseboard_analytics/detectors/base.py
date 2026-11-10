@@ -16,6 +16,18 @@ import numpy as np
 import pandas as pd
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
+# A series is flat when its peak-to-peak range is at most this many units in the last place of its
+# own magnitude. The rule is relative, so it does not depend on the unit, and it is based on the
+# range, not on the standard deviation, so a large offset with a small variance is not flat.
+FLAT_ULPS = 8.0
+_EPS = float(np.finfo(np.float64).eps)
+
+
+def flat_range(low: pd.Series, high: pd.Series) -> pd.Series:
+    """Element-wise: whether ``[low, high]`` is flat up to a few ulps of its magnitude."""
+    magnitude = np.maximum(low.abs(), high.abs())
+    return (high - low) <= FLAT_ULPS * _EPS * magnitude
+
 
 class Detector(StrEnum):
     """Detector identifiers as stored in ``anomaly.detector``."""
@@ -42,7 +54,7 @@ class DetectorResult(BaseModel):
     window_end: AwareDatetime
     score: float = Field(ge=0.0, le=1.0)
     severity: Severity
-    details: dict[str, float | int | str] = Field(default_factory=dict)
+    details: dict[str, float | int | str | bool] = Field(default_factory=dict)
 
 
 class InvalidSeriesError(ValueError):

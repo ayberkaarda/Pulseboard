@@ -3,7 +3,7 @@
 Each point is compared with the mean and sample standard deviation of the (at most) 288 points
 before it, so a spike never dilutes its own baseline. A point is only scored once at least 30
 preceding points exist, hence series shorter than 31 points never produce anomalies. A flat
-baseline (standard deviation of zero) produces no anomalies.
+baseline (range of a few ulps of its magnitude) produces no anomalies.
 
 Input: see :mod:`pulseboard_analytics.detectors.base`.
 """
@@ -15,6 +15,7 @@ from pulseboard_analytics.detectors.base import (
     Detector,
     DetectorResult,
     Severity,
+    flat_range,
     to_datetime,
     validate_series,
 )
@@ -25,9 +26,6 @@ Z_THRESHOLD = 3.0
 Z_MEDIUM = 4.0
 Z_HIGH = 5.0
 SCORE_FULL_AT = 6.0
-# A rolling std below this fraction of the baseline magnitude is floating point noise on a flat
-# baseline. The tolerance is purely relative, so the result does not depend on the unit.
-_FLAT_TOLERANCE = 1e-9
 
 
 def severity_for_z(z: float) -> Severity | None:
@@ -58,7 +56,8 @@ def detect(frame: pd.DataFrame) -> list[DetectorResult]:
     mean = baseline.mean()
     std = baseline.std()
 
-    flat = std <= _FLAT_TOLERANCE * mean.abs()
+    # A baseline whose range is only a few ulps of its magnitude is flat, whatever the unit.
+    flat = flat_range(baseline.min(), baseline.max())
     z_scores = (values - mean) / std.where(~flat)
 
     results: list[DetectorResult] = []

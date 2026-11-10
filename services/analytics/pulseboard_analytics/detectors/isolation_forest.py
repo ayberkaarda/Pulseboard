@@ -29,6 +29,7 @@ from pulseboard_analytics.detectors.base import (
     Detector,
     DetectorResult,
     Severity,
+    flat_range,
     to_datetime,
     validate_series,
 )
@@ -43,8 +44,6 @@ MEDIUM_FROM = SCORE_THRESHOLD + (1.0 - SCORE_THRESHOLD) / 3.0
 HIGH_FROM = SCORE_THRESHOLD + 2.0 * (1.0 - SCORE_THRESHOLD) / 3.0
 RETRAIN_INTERVAL = timedelta(hours=6)
 RETRAIN_GROWTH = 1.2
-# A series is flat when its standard deviation is below this fraction of its own magnitude.
-_FLAT_TOLERANCE = 1e-9
 _CLIP = 1e6
 _MAD_TO_STD = 1.4826
 
@@ -109,11 +108,10 @@ def is_trainable(frame: pd.DataFrame) -> bool:
 
 
 def is_flat(values: pd.Series) -> bool:
-    """Whether ``values`` are constant up to rounding noise relative to their own magnitude."""
-    std = float(values.std())
-    if not np.isfinite(std):
-        return False
-    return std <= _FLAT_TOLERANCE * abs(float(values.mean()))
+    """Whether the range of ``values`` is only a few ulps of their magnitude (see ``base``)."""
+    low = pd.Series([float(values.min())])
+    high = pd.Series([float(values.max())])
+    return bool(flat_range(low, high).iloc[0])
 
 
 def _standardization(features: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
