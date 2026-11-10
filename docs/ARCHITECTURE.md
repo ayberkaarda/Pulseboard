@@ -250,7 +250,7 @@ Both detectors are pure functions over a `pandas.DataFrame` with a documented in
 
 #### Server-sent events
 
-`GET /api/v1/stream/anomalies` (JWT bearer header, tenant taken from the token only) sends an `anomaly` event per new anomaly with the anomaly id as the event id and the anomaly JSON as data, plus a `: ping` comment every 30 seconds. Limits: 5 streams per tenant and 500 per instance (429 above), 30 minutes maximum lifetime or token expiry, whichever comes first. Events are not replayed after a reconnect; clients read `GET /api/v1/anomalies` to catch up.
+`GET /api/v1/stream/anomalies` (JWT bearer header, tenant taken from the token only) sends an `anomaly` event per new anomaly with the anomaly id as the event id and the anomaly JSON as data, plus a `: ping` comment every 30 seconds. Limits: 10 streams per tenant (`ANOMALY_STREAM_MAX_PER_TENANT`) and 500 per instance (429 above), 30 minutes maximum lifetime or token expiry, whichever comes first. Events are not replayed after a reconnect; clients read `GET /api/v1/anomalies` to catch up.
 
 A reverse proxy in front of this endpoint must:
 
@@ -264,4 +264,4 @@ The bundled `apps/web/nginx.conf` does not have such a location yet; adding it i
 
 ### 4.6 End-to-end check
 
-`make e2e` (`scripts/e2e/run.py`, Python standard library only) starts postgres, redis, `api-core` and `analytics` as the throwaway compose project `pulseboard-e2e` with generated secrets, ingests a noisy series with a spike, waits (at most 180 s) for the scheduler, and asserts the anomaly in REST and SSE, tenant isolation and the internal HMAC behaviour. The project is always removed afterwards; `make e2e-down` cleans up after an interrupted run.
+`make e2e` (`scripts/e2e/run.py`, Python standard library only) starts postgres, redis, `api-core` and `analytics` as the throwaway compose project `pulseboard-e2e` with generated secrets, ingests a noisy series with a spike, waits (at most 180 s) for the scheduler, and asserts the anomaly in REST and SSE, tenant isolation and the internal HMAC behaviour. The project is always removed afterwards; `make e2e-down` cleans up after an interrupted run. In CI it runs as the separate workflow `.github/workflows/e2e.yml` (nightly schedule and manual dispatch only, 20 minute timeout), not on push or pull request. `make check-compose` (`scripts/check_compose_env.py`) verifies that `docker compose config` passes the analytics and stream settings.
