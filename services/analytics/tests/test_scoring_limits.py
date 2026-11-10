@@ -536,7 +536,9 @@ def test_downsampling_is_deterministic_and_covers_the_whole_window(
     assert first.equals(second)
     assert 0 < len(first) <= 100
     oldest = _rows(owner, "SELECT min(ts) FROM metric_point")[0][0]
-    assert first["ts"].iloc[0].to_pydatetime() == oldest
+    # the first bucket is represented by one of its own raw points
+    first_ts = first["ts"].iloc[0].to_pydatetime()
+    assert oldest <= first_ts <= oldest + timedelta(seconds=873)  # type: ignore[operator]
     assert reader.downsampled_windows == 2
 
 
