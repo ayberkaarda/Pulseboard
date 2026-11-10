@@ -20,7 +20,7 @@ def test_injected_spike_is_caught() -> None:
     assert spike.severity is Severity.HIGH
     assert spike.score == 1.0
     assert spike.window_start == spike.window_end
-    assert spike.details["z"] > 5.0
+    assert float(spike.details["z"]) > 5.0
 
 
 def test_negative_spike_is_caught() -> None:
@@ -30,7 +30,7 @@ def test_negative_spike_is_caught() -> None:
     results = zscore.detect(make_frame(values))
 
     assert len(results) == 1
-    assert results[0].details["z"] < -3.0
+    assert float(results[0].details["z"]) < -3.0
 
 
 def test_level_shift_is_flagged_at_its_start() -> None:
@@ -94,7 +94,7 @@ def test_output_is_deterministic_and_finite() -> None:
 
     assert first == second
     assert all(0.0 <= r.score <= 1.0 for r in first)
-    assert all(v == v and abs(v) != float("inf") for r in first for v in r.details.values())
+    assert all(v == v and abs(float(v)) != float("inf") for r in first for v in r.details.values())
 
 
 @pytest.mark.parametrize(

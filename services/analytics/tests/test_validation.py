@@ -26,7 +26,9 @@ def _unsorted() -> pd.DataFrame:
 
 def _duplicate_ts() -> pd.DataFrame:
     frame = make_frame(noisy(100))
-    frame.loc[50, "ts"] = frame.loc[49, "ts"]
+    stamps = list(frame["ts"])
+    stamps[50] = stamps[49]
+    frame["ts"] = pd.to_datetime(stamps, utc=True)
     return frame
 
 
