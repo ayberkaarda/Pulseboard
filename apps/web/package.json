@@ -12,6 +12,7 @@
     "watch": "ng build --watch --configuration development",
     "api:generate": "openapi-typescript ../../contracts/api-core.openapi.yaml -o src/app/api/generated/schema.d.ts",
     "api:check": "node scripts/api-check.mjs",
+    "typecheck": "tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.spec.json --noEmit",
     "test": "ng test",
     "lint": "ng lint",
     "format": "prettier --write .",

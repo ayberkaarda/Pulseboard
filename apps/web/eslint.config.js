@@ -30,6 +30,7 @@ module.exports = defineConfig([
       '@angular-eslint/prefer-on-push-component-change-detection': 'error',
       '@angular-eslint/prefer-standalone': 'error',
       '@angular-eslint/prefer-signals': 'error',
+      '@typescript-eslint/no-extraneous-class': ['error', { allowWithDecorator: true }],
     },
   },
   {
