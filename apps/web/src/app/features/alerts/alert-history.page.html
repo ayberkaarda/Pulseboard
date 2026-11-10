@@ -1,0 +1,176 @@
+<section aria-labelledby="history-heading">
+  <div class="head">
+    <h2 id="history-heading" class="section-title">History</h2>
+    <div class="refresh">
+      @if (loadedAt(); as at) {
+        <span class="pb-note stamp">Read at {{ at }}</span>
+      }
+      <button
+        mat-stroked-button
+        type="button"
+        [disabled]="history.refreshing() || history.status() === 'loading'"
+        (click)="history.refresh()"
+      >
+        {{ history.refreshing() ? 'Refreshing' : 'Refresh' }}
+      </button>
+    </div>
+  </div>
+
+  <form
+    class="pb-toolbar"
+    role="search"
+    aria-label="Filter alert history"
+    (submit)="$event.preventDefault()"
+  >
+    <label class="pb-field">
+      <span>Rule</span>
+      <select
+        class="pb-select"
+        [value]="history.filters().ruleId ?? ''"
+        (change)="onRule($any($event.target).value)"
+      >
+        <option value="">All rules</option>
+        @for (rule of rules.rules(); track rule.id) {
+          <option [value]="rule.id" [selected]="rule.id === history.filters().ruleId">
+            {{ rule.name }}
+          </option>
+        }
+      </select>
+    </label>
+    <label class="pb-field">
+      <span>Status</span>
+      <select
+        class="pb-select"
+        [value]="history.filters().status ?? ''"
+        (change)="onStatus($any($event.target).value)"
+      >
+        <option value="">Any status</option>
+        <option value="PENDING">Pending</option>
+        <option value="SENT">Sent</option>
+        <option value="FAILED">Failed</option>
+      </select>
+    </label>
+    <label class="pb-field">
+      <span>From</span>
+      <input
+        class="pb-input"
+        type="date"
+        [value]="history.filters().from ?? ''"
+        [attr.aria-invalid]="history.rangeError() ? 'true' : null"
+        [attr.aria-describedby]="history.rangeError() ? 'range-error' : null"
+        (change)="onFrom($any($event.target).value)"
+      />
+    </label>
+    <label class="pb-field">
+      <span>To</span>
+      <input
+        class="pb-input"
+        type="date"
+        [value]="history.filters().to ?? ''"
+        [attr.aria-invalid]="history.rangeError() ? 'true' : null"
+        [attr.aria-describedby]="history.rangeError() ? 'range-error' : null"
+        (change)="onTo($any($event.target).value)"
+      />
+    </label>
+    @if (history.hasFilters()) {
+      <button mat-button type="button" (click)="history.clearFilters()">Clear filters</button>
+    }
+  </form>
+  @if (history.rangeError(); as message) {
+    <p id="range-error" class="range-error" role="alert">{{ message }}</p>
+  }
+
+  @switch (history.status()) {
+    @case ('error') {
+      @if (history.problem(); as problem) {
+        <app-load-error
+          heading="Could not load the alert history"
+          [problem]="problem"
+          (retry)="history.load()"
+        />
+      }
+    }
+    @case ('loaded') {
+      @if (history.items().length === 0) {
+        @if (history.hasFilters()) {
+          <app-empty-state
+            heading="No alerts match these filters"
+            body="Widen the filters to see more."
+          >
+            <button mat-stroked-button type="button" (click)="history.clearFilters()">
+              Clear filters
+            </button>
+          </app-empty-state>
+        } @else {
+          <app-empty-state
+            heading="No alerts have fired yet"
+            body="When a rule fires, the event and the state of its delivery appear here."
+          />
+        }
+      } @else {
+        <ul
+          class="events pb-list"
+          aria-label="Alert events"
+          [attr.aria-busy]="history.refreshing()"
+        >
+          @for (event of history.items(); track event.id) {
+            <li class="event">
+              <div class="state">
+                <app-delivery-glyph [state]="event.deliveryStatus" />
+                <span class="word">{{ statusLabel(event.deliveryStatus) }}</span>
+              </div>
+              <div class="what">
+                <span class="rule">{{ event.ruleName }}</span>
+                @if (event.lastError) {
+                  <span class="error-text">Last error: {{ event.lastError }}</span>
+                }
+              </div>
+              <span class="attempts pb-figures"
+                >{{ event.attempts }} {{ event.attempts === 1 ? 'attempt' : 'attempts' }}</span
+              >
+              <time class="when" [attr.datetime]="event.triggeredAt" [title]="absolute(event)">{{
+                relative(event)
+              }}</time>
+              <button
+                mat-stroked-button
+                type="button"
+                [attr.aria-label]="'Details of ' + event.ruleName + ', ' + relative(event)"
+                (click)="open(event)"
+              >
+                Details
+              </button>
+            </li>
+          }
+        </ul>
+        <nav class="pager" aria-label="Pagination">
+          <button
+            mat-stroked-button
+            type="button"
+            [disabled]="history.page() === 0"
+            (click)="history.setPage(history.page() - 1)"
+          >
+            Previous
+          </button>
+          <span class="pb-figures">{{ pageLabel() }}, {{ history.totalItems() }} in total</span>
+          <button
+            mat-stroked-button
+            type="button"
+            [disabled]="history.page() + 1 >= history.totalPages()"
+            (click)="history.setPage(history.page() + 1)"
+          >
+            Next
+          </button>
+        </nav>
+        @if (history.hasPending()) {
+          <p class="pb-note">
+            Some alerts are still pending. This list refreshes by itself every 30 seconds while this
+            tab is open.
+          </p>
+        }
+      }
+    }
+    @default {
+      <app-skeleton-rows label="Loading alert history" />
+    }
+  }
+</section>

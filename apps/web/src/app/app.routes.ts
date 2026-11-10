@@ -53,6 +53,10 @@ export const routes: Routes = [
           import('./features/anomalies/anomalies.page').then((m) => m.AnomaliesPage),
       },
       {
+        path: 'alerts',
+        loadChildren: () => import('./features/alerts/alerts.routes').then((m) => m.ALERT_ROUTES),
+      },
+      {
         path: '**',
         title: 'Not found - Pulseboard',
         loadComponent: () =>

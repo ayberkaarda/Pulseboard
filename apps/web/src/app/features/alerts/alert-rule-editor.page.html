@@ -1,0 +1,275 @@
+<p class="back">
+  <a routerLink="/app/alerts/rules">Back to alert rules</a>
+</p>
+
+<app-page-head
+  [title]="editing ? 'Edit alert rule' : 'New alert rule'"
+  summary="A rule watches one metric. When it fires, the notification goes to the target you choose."
+/>
+
+@switch (state()) {
+  @case ('denied') {
+    <div class="pb-panel" role="note">
+      <h2 class="panel-title">Read only</h2>
+      <p>
+        Only owners and admins can create or change alert rules. You can still read the rules and
+        their history.
+      </p>
+    </div>
+  }
+  @case ('loading') {
+    <app-skeleton-rows label="Loading the rule" />
+  }
+  @case ('error') {
+    @if (store.problem(); as problem) {
+      <app-load-error
+        heading="Could not load the rule"
+        [problem]="problem"
+        (retry)="store.load()"
+      />
+    }
+  }
+  @case ('missing') {
+    <div class="pb-panel" role="alert">
+      <h2 class="panel-title">This rule does not exist</h2>
+      <p>It may have been deleted. Go back to the list to see the current rules.</p>
+    </div>
+  }
+  @default {
+    @if (saveProblem(); as problem) {
+      <div class="problem" role="alert">
+        @if (problem === 'conflict') {
+          <p>
+            <strong>This rule was changed elsewhere.</strong> Your edits were not saved, so nothing
+            was overwritten. Load the latest version to continue from it; your edits are discarded.
+          </p>
+          <div class="problem-actions">
+            <button mat-flat-button type="button" (click)="reloadLatest()">
+              Load latest version
+            </button>
+            <button mat-button type="button" (click)="dismissProblem()">Keep editing</button>
+          </div>
+        } @else {
+          <p>
+            <strong>This rule was deleted elsewhere.</strong> It can no longer be saved. Go back to
+            the list.
+          </p>
+        }
+      </div>
+    }
+
+    @if (formError(); as message) {
+      <p class="form-error" role="alert">{{ message }}</p>
+    }
+
+    <form
+      class="form"
+      [formGroup]="form"
+      (ngSubmit)="submit()"
+      novalidate
+      [attr.aria-busy]="submitting()"
+    >
+      <fieldset class="pb-fieldset">
+        <legend>What to watch</legend>
+
+        <mat-form-field appearance="outline">
+          <mat-label>Rule name</mat-label>
+          <input matInput type="text" formControlName="name" autocomplete="off" required />
+          <mat-hint>Unique in your workspace, up to {{ limits.name }} characters.</mat-hint>
+          <mat-error>{{ message('name') }}</mat-error>
+        </mat-form-field>
+
+        <div class="pair">
+          <mat-form-field appearance="outline">
+            <mat-label>Service</mat-label>
+            <select
+              matNativeControl
+              formControlName="serviceId"
+              required
+              (change)="onServiceChange()"
+            >
+              <option value="">Choose a service</option>
+              @for (service of catalog.services().items; track service.id) {
+                <option [value]="service.id">{{ service.name }} ({{ service.environment }})</option>
+              }
+            </select>
+            <mat-error>{{ message('serviceId') }}</mat-error>
+          </mat-form-field>
+
+          <mat-form-field appearance="outline">
+            <mat-label>Metric</mat-label>
+            <select matNativeControl formControlName="metricId" required>
+              <option value="">
+                {{
+                  serviceId() === ''
+                    ? 'Choose a service first'
+                    : metricsLoading()
+                      ? 'Loading metrics'
+                      : metrics().length === 0
+                        ? 'This service has no metrics'
+                        : 'Choose a metric'
+                }}
+              </option>
+              @for (metric of metrics(); track metric.id) {
+                <option [value]="metric.id">{{ metric.name }} ({{ metric.unit }})</option>
+              }
+            </select>
+            <mat-error>{{ message('metricId') }}</mat-error>
+          </mat-form-field>
+        </div>
+      </fieldset>
+
+      <fieldset class="pb-fieldset">
+        <legend>Alert when</legend>
+
+        <div class="pb-choices" role="radiogroup" aria-label="Condition">
+          <label class="pb-choice">
+            <input type="radio" formControlName="condition" value="THRESHOLD" />
+            <span>The value crosses a threshold</span>
+          </label>
+          <label class="pb-choice">
+            <input type="radio" formControlName="condition" value="ANOMALY_SEVERITY" />
+            <span>An anomaly reaches a severity</span>
+          </label>
+        </div>
+
+        @if (condition() === 'THRESHOLD') {
+          <div class="pair">
+            <mat-form-field appearance="outline">
+              <mat-label>Operator</mat-label>
+              <select matNativeControl formControlName="operator">
+                @for (operator of operators; track operator) {
+                  <option [value]="operator">
+                    {{ operatorSymbols[operator] }} ({{ operatorLabels[operator] }})
+                  </option>
+                }
+              </select>
+            </mat-form-field>
+
+            <mat-form-field appearance="outline">
+              <mat-label>Threshold</mat-label>
+              <input
+                matInput
+                type="number"
+                inputmode="decimal"
+                step="any"
+                formControlName="threshold"
+                autocomplete="off"
+                required
+              />
+              <span matTextSuffix>{{ unit() }}</span>
+              <mat-hint>{{
+                unit() === '' ? 'A number.' : 'In ' + unit() + ', the unit of the metric.'
+              }}</mat-hint>
+              <mat-error>{{ message('threshold') }}</mat-error>
+            </mat-form-field>
+          </div>
+        } @else {
+          <fieldset class="severity">
+            <legend>Minimum severity</legend>
+            <p id="severity-hint" class="hint">The rule fires for this severity and above.</p>
+            <div class="pb-choices">
+              @for (severity of severities; track severity) {
+                <label class="pb-choice">
+                  <input
+                    type="radio"
+                    formControlName="minSeverity"
+                    [value]="severity"
+                    aria-describedby="severity-hint"
+                  />
+                  <app-severity-glyph [severity]="severity" />
+                  <span>{{ severityLabels[severity] }}</span>
+                </label>
+              }
+            </div>
+          </fieldset>
+        }
+      </fieldset>
+
+      <fieldset class="pb-fieldset">
+        <legend>Notify</legend>
+
+        <div class="pb-choices" role="radiogroup" aria-label="Channel">
+          <label class="pb-choice">
+            <input type="radio" formControlName="channel" value="WEBHOOK" />
+            <span>Webhook</span>
+          </label>
+          <label class="pb-choice">
+            <input type="radio" formControlName="channel" value="EMAIL_LOG" />
+            <span>E-mail log</span>
+          </label>
+        </div>
+
+        <mat-form-field appearance="outline">
+          <mat-label>{{ channel() === 'WEBHOOK' ? 'Webhook URL' : 'Recipient label' }}</mat-label>
+          <input
+            matInput
+            type="text"
+            inputmode="url"
+            formControlName="target"
+            autocomplete="off"
+            autocapitalize="none"
+            spellcheck="false"
+            required
+          />
+          <mat-hint>
+            @if (channel() === 'WEBHOOK') {
+              An https address on a public host name, without a user name or password.
+            } @else {
+              A label such as oncall@example.com. The alert is written to the server log; no e-mail
+              is sent.
+            }
+          </mat-hint>
+          <mat-error>{{ message('target') }}</mat-error>
+        </mat-form-field>
+
+        <div class="cooldown">
+          <span id="cooldown-label" class="small-label">Stay silent after firing for</span>
+          <div class="pb-chips" role="group" aria-labelledby="cooldown-label">
+            @for (preset of presets; track preset.seconds) {
+              <button
+                type="button"
+                class="pb-chip"
+                [attr.aria-pressed]="cooldown() === preset.seconds"
+                (click)="setCooldown(preset.seconds)"
+              >
+                {{ preset.label }}
+              </button>
+            }
+          </div>
+          <mat-form-field appearance="outline">
+            <mat-label>Cooldown in seconds</mat-label>
+            <input
+              matInput
+              type="number"
+              inputmode="numeric"
+              step="1"
+              [attr.min]="limits.cooldownMin"
+              [attr.max]="limits.cooldownMax"
+              formControlName="cooldownSeconds"
+              autocomplete="off"
+              required
+            />
+            <mat-hint>
+              {{ limits.cooldownMin }} to {{ limits.cooldownMax }} seconds{{
+                cooldownText() === '' ? '' : ', now ' + cooldownText()
+              }}.
+            </mat-hint>
+            <mat-error>{{ message('cooldownSeconds') }}</mat-error>
+          </mat-form-field>
+        </div>
+
+        <mat-slide-toggle formControlName="enabled">Rule enabled</mat-slide-toggle>
+      </fieldset>
+
+      <p class="pb-visually-hidden" role="status" aria-live="polite">{{ announcement() }}</p>
+
+      <div class="actions">
+        <button mat-flat-button type="submit" [disabled]="submitting()">
+          {{ submitting() ? 'Saving' : 'Save rule' }}
+        </button>
+        <a mat-button routerLink="/app/alerts/rules">Cancel</a>
+      </div>
+    </form>
+  }
+}

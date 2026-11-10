@@ -296,7 +296,7 @@ stated in text ("Live" with last-event time, or "Reconnecting, last event 14:02"
 
 ### Alert rule editor
 
-A dedicated route ( and ) with one column of three panels:
+A dedicated route (`/app/alerts/rules/new` and `/app/alerts/rules/:id`) with one column of three panels:
 what to watch (name, service, metric), alert when (a radio choice between a threshold, with
 operator and a value shown in the metric's unit, and an anomaly severity, with the severity
 glyphs) and notify (channel, target, cooldown presets plus a seconds field, enabled). The

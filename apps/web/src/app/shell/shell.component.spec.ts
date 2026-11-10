@@ -70,10 +70,15 @@ describe('ShellComponent', () => {
     expect(screen.getAllByText('pulseboard')[0]).toBeVisible();
     const nav = screen.getByRole('navigation', { name: 'Primary' });
     const items = within(nav).getAllByRole('link');
-    expect(items.map((item) => item.textContent?.trim())).toEqual(['Overview', 'Anomalies']);
+    expect(items.map((item) => item.textContent?.trim())).toEqual([
+      'Overview',
+      'Anomalies',
+      'Alert rules',
+    ]);
     expect(items.map((item) => item.getAttribute('href'))).toEqual([
       '/app/overview',
       '/app/anomalies',
+      '/app/alerts',
     ]);
     expect(screen.getByRole('heading', { level: 1, name: 'Overview page' })).toBeInTheDocument();
     expect(within(nav).getByRole('link', { name: 'Overview' })).toHaveAttribute(

@@ -1,0 +1,126 @@
+<section aria-labelledby="rules-heading">
+  <div class="head">
+    <h2 id="rules-heading" class="section-title" tabindex="-1" #heading>Rules</h2>
+    @if (store.canManage()) {
+      <a mat-flat-button routerLink="new">New rule</a>
+    }
+  </div>
+
+  @if (!store.canManage()) {
+    <p id="rules-readonly" class="pb-note">
+      You can read the alert rules, but only owners and admins can create, change, switch or delete
+      them.
+    </p>
+  }
+
+  @if (store.notice(); as notice) {
+    <div class="notice" role="alert">
+      <p>{{ notice.message }}</p>
+      <div class="notice-actions">
+        @if (notice.kind === 'changed') {
+          <button mat-stroked-button type="button" (click)="store.load()">Reload rules</button>
+        }
+        <button mat-button type="button" (click)="store.dismissNotice()">Dismiss</button>
+      </div>
+    </div>
+  }
+
+  @switch (view()) {
+    @case ('error') {
+      @if (store.problem(); as problem) {
+        <app-load-error
+          heading="Could not load alert rules"
+          [problem]="problem"
+          (retry)="store.load()"
+        />
+      }
+    }
+    @case ('empty') {
+      <app-empty-state
+        heading="No alert rules yet"
+        [body]="
+          store.canManage()
+            ? 'A rule watches one metric and notifies you when it crosses a threshold or when an anomaly of a chosen severity appears.'
+            : 'An owner or admin can create a rule to be notified when a metric crosses a threshold or an anomaly appears.'
+        "
+      >
+        @if (store.canManage()) {
+          <a mat-flat-button routerLink="new">Create your first rule</a>
+        }
+      </app-empty-state>
+    }
+    @case ('list') {
+      <ul
+        class="rules pb-list"
+        aria-label="Alert rules"
+        [attr.aria-busy]="store.status() === 'loading'"
+      >
+        @for (rule of store.rules(); track rule.id) {
+          <li class="rule" [class.off]="!rule.enabled">
+            <div class="main">
+              @if (store.canManage()) {
+                <a class="name" [routerLink]="[rule.id]">{{ rule.name }}</a>
+              } @else {
+                <span class="name">{{ rule.name }}</span>
+              }
+              <span class="meta">{{ rule.serviceName }} / {{ rule.metricName }}</span>
+            </div>
+            <dl class="facts">
+              <div>
+                <dt>Condition</dt>
+                <dd class="pb-figures">{{ summary(rule) }}</dd>
+              </div>
+              <div>
+                <dt>Cooldown</dt>
+                <dd class="pb-figures">{{ cooldown(rule) }}</dd>
+              </div>
+              <div>
+                <dt>Notifies</dt>
+                <dd>{{ channel(rule) }}, {{ where(rule) }}</dd>
+              </div>
+            </dl>
+            <div class="state">
+              @if (store.canManage()) {
+                <mat-slide-toggle
+                  [checked]="rule.enabled"
+                  [disabled]="store.pendingIds().includes(rule.id)"
+                  [aria-label]="'Enabled: ' + rule.name"
+                  (change)="toggle(rule, $event.checked)"
+                  >{{ rule.enabled ? 'Enabled' : 'Disabled' }}</mat-slide-toggle
+                >
+              } @else {
+                <span class="status">{{ rule.enabled ? 'Enabled' : 'Disabled' }}</span>
+              }
+            </div>
+            <div class="actions">
+              <a
+                mat-button
+                routerLink="/app/alerts/history"
+                [queryParams]="{ ruleId: rule.id }"
+                [attr.aria-label]="'History of ' + rule.name"
+                >History</a
+              >
+              @if (store.canManage()) {
+                <a mat-button [routerLink]="[rule.id]" [attr.aria-label]="'Edit ' + rule.name"
+                  >Edit</a
+                >
+                <button
+                  mat-button
+                  type="button"
+                  [disabled]="store.pendingIds().includes(rule.id)"
+                  [attr.aria-label]="'Delete ' + rule.name"
+                  (click)="remove(rule)"
+                >
+                  Delete
+                </button>
+              }
+            </div>
+          </li>
+        }
+      </ul>
+    }
+    @default {
+      <app-skeleton-rows label="Loading alert rules" />
+    }
+  }
+</section>
