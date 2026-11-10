@@ -18,6 +18,7 @@ permissions:
 jobs:
   lint-test-build:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: apps/web
@@ -28,13 +29,29 @@ jobs:
           node-version: "26"
           cache: npm
           cache-dependency-path: apps/web/package-lock.json
-      - name: Install dependencies
+      - name: npm ci
         run: npm ci
-      - name: Check API types
+      - name: API types check
         run: npm run api:check
       - name: Lint
         run: npm run lint
+      - name: Format check
+        run: npm run format:check
+      - name: Typecheck
+        run: npm run typecheck
       - name: Test
         run: npm test
-      - name: Build
+      - name: Build (production)
         run: npm run build
+      - name: Lighthouse CI
+        run: npx @lhci/cli autorun
+        env:
+          CHROME_PATH: /usr/bin/google-chrome
+      - name: Upload Lighthouse report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lighthouse-report
+          path: apps/web/.lighthouseci
+          retention-days: 7
+          if-no-files-found: ignore
