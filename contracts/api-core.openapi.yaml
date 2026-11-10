@@ -3,7 +3,7 @@ info:
   description: "Identity, tenancy, metric ingestion and queries, anomalies and their\
     \ live stream. Errors are RFC 9457 problem details (application/problem+json)."
   title: Pulseboard api-core
-  version: 0.6.0
+  version: 0.7.0
 servers:
 - description: Same origin
   url: /
@@ -12,6 +12,457 @@ tags:
     \ with an HMAC signature of the body, never with a JWT or an API key."
   name: internal
 paths:
+  /api/v1/alert-events:
+    get:
+      description: "Alert events of the caller's tenant, newest first (trigger time,\
+        \ then id, both descending), so consecutive pages never overlap. `from` (inclusive)\
+        \ and `to` (exclusive) filter on the trigger time. At most 100 per page."
+      operationId: listAlertEvents
+      parameters:
+      - description: Only events of this rule.
+        in: query
+        name: ruleId
+        required: false
+        schema:
+          type: string
+          format: uuid
+      - description: Only events with this delivery status.
+        in: query
+        name: status
+        required: false
+        schema:
+          type: string
+          enum:
+          - PENDING
+          - SENT
+          - FAILED
+      - description: "Inclusive lower bound of the trigger time, RFC 3339 (encode\
+          \ '+' as %2B)."
+        in: query
+        name: from
+        required: false
+        schema:
+          type: string
+          format: date-time
+      - description: "Exclusive upper bound of the trigger time, RFC 3339 (encode\
+          \ '+' as %2B)."
+        in: query
+        name: to
+        required: false
+        schema:
+          type: string
+          format: date-time
+      - description: Zero-based page number.
+        in: query
+        name: page
+        required: false
+        schema:
+          type: integer
+          format: int32
+          default: 0
+          minimum: 0
+      - description: "Page size, 1 to 100."
+        in: query
+        name: size
+        required: false
+        schema:
+          type: integer
+          format: int32
+          default: 20
+          maximum: 100
+          minimum: 1
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlertEventPage"
+          description: One page of alert events
+        "400":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Invalid filter or paging parameter
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Missing or invalid access token
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Not authenticated as a user
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Unexpected error
+      security:
+      - bearerAuth: []
+      summary: List alert events
+      tags:
+      - Alert events
+  /api/v1/alert-events/{id}:
+    get:
+      operationId: getAlertEvent
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlertEvent"
+          description: The event
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Missing or invalid access token
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Not authenticated as a user
+        "404":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: No such event for the caller's tenant
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Unexpected error
+      security:
+      - bearerAuth: []
+      summary: Read one alert event
+      tags:
+      - Alert events
+  /api/v1/alert-rules:
+    get:
+      description: "All rules of the caller's tenant, oldest first (a tenant owns\
+        \ at most 50 by default)."
+      operationId: listAlertRules
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AlertRule"
+          description: The rules
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Missing or invalid access token
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: "Not a user of the tenant, or not an OWNER or ADMIN for a change"
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Unexpected error
+      security:
+      - bearerAuth: []
+      summary: List alert rules
+      tags:
+      - Alert rules
+    post:
+      description: OWNER and ADMIN only. A WEBHOOK target is checked against server-side
+        request forgery rules before it is stored (see the `target` field) and again
+        for every delivery.
+      operationId: createAlertRule
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AlertRuleRequest"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlertRule"
+          description: The rule was created
+        "400":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: "Invalid field, unknown metric or unacceptable webhook target"
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Missing or invalid access token
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: "Not a user of the tenant, or not an OWNER or ADMIN for a change"
+        "409":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: The name is taken (type conflict) or the tenant has the maximum
+            number of rules (type alert-rule-limit)
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Unexpected error
+      security:
+      - bearerAuth: []
+      summary: Create an alert rule
+      tags:
+      - Alert rules
+  /api/v1/alert-rules/{id}:
+    delete:
+      description: OWNER and ADMIN only. The events of the rule are deleted with it.
+      operationId: deleteAlertRule
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        "204":
+          description: The rule was deleted
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Missing or invalid access token
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: "Not a user of the tenant, or not an OWNER or ADMIN for a change"
+        "404":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: No such rule for the caller's tenant
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Unexpected error
+      security:
+      - bearerAuth: []
+      summary: Delete an alert rule
+      tags:
+      - Alert rules
+    get:
+      operationId: getAlertRule
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlertRule"
+          description: The rule
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Missing or invalid access token
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: "Not a user of the tenant, or not an OWNER or ADMIN for a change"
+        "404":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: No such rule for the caller's tenant
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Unexpected error
+      security:
+      - bearerAuth: []
+      summary: Read one alert rule
+      tags:
+      - Alert rules
+    patch:
+      description: OWNER and ADMIN only. Without `version` the flag is simply set.
+      operationId: setAlertRuleEnabled
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AlertRuleEnabledRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlertRule"
+          description: The updated rule
+        "400":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: '`enabled` is missing'
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Missing or invalid access token
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: "Not a user of the tenant, or not an OWNER or ADMIN for a change"
+        "404":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: No such rule for the caller's tenant
+        "409":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Stale version (type version-conflict)
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Unexpected error
+      security:
+      - bearerAuth: []
+      summary: Enable or disable an alert rule
+      tags:
+      - Alert rules
+    put:
+      description: "OWNER and ADMIN only. Optimistic concurrency: `version` must be\
+        \ the version that was read; if the rule changed meanwhile the answer is 409\
+        \ (type version-conflict)."
+      operationId: updateAlertRule
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AlertRuleUpdateRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlertRule"
+          description: The updated rule
+        "400":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: "Invalid field, unknown metric or unacceptable webhook target"
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Missing or invalid access token
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: "Not a user of the tenant, or not an OWNER or ADMIN for a change"
+        "404":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: No such rule for the caller's tenant
+        "409":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Stale version (type version-conflict) or the name is taken
+            (type conflict)
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Unexpected error
+      security:
+      - bearerAuth: []
+      summary: Replace an alert rule
+      tags:
+      - Alert rules
   /api/v1/anomalies:
     get:
       description: "Anomalies of the caller's tenant, newest window first (window\
@@ -928,6 +1379,342 @@ paths:
       - internal
 components:
   schemas:
+    AlertEvent:
+      type: object
+      description: "An alert that was raised, with its delivery state. Delivery is\
+        \ at least once: a receiver should deduplicate on `id`."
+      properties:
+        attempts:
+          type: integer
+          format: int32
+          description: Delivery attempts started so far.
+        deliveredAt:
+          type:
+          - string
+          - "null"
+          format: date-time
+          description: Null unless SENT.
+        deliveryStatus:
+          type: string
+          enum:
+          - PENDING
+          - SENT
+          - FAILED
+        id:
+          type: string
+          format: uuid
+        lastError:
+          type:
+          - string
+          - "null"
+          description: "Reason of the last failed attempt (a status code or an error\
+            \ class, never a URL or a response body)."
+        nextAttemptAt:
+          type:
+          - string
+          - "null"
+          format: date-time
+          description: When the next attempt is due; null unless PENDING.
+        payload:
+          type: object
+          additionalProperties: true
+          description: The document that is delivered to the receiver.
+        ruleId:
+          type: string
+          format: uuid
+        ruleName:
+          type: string
+          description: Current name of the rule.
+        sourceRef:
+          type: string
+          description: "What caused the event: the timestamp of the metric point or\
+            \ the id of the anomaly. Unique per rule."
+        triggeredAt:
+          type: string
+          format: date-time
+      required:
+      - attempts
+      - deliveredAt
+      - deliveryStatus
+      - id
+      - lastError
+      - nextAttemptAt
+      - payload
+      - ruleId
+      - ruleName
+      - sourceRef
+      - triggeredAt
+    AlertEventPage:
+      type: object
+      description: "One page of alert events, newest first."
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AlertEvent"
+        page:
+          type: integer
+          format: int32
+          description: Zero-based page number.
+        size:
+          type: integer
+          format: int32
+          description: Requested page size.
+        totalItems:
+          type: integer
+          format: int64
+          description: Number of events that match the filters.
+        totalPages:
+          type: integer
+          format: int64
+          description: Number of pages of this size.
+      required:
+      - items
+      - page
+      - size
+      - totalItems
+      - totalPages
+    AlertRule:
+      type: object
+      description: An alert rule of the caller's tenant.
+      properties:
+        channel:
+          type: string
+          enum:
+          - WEBHOOK
+          - EMAIL_LOG
+        condition:
+          type: string
+          enum:
+          - THRESHOLD
+          - ANOMALY_SEVERITY
+        cooldownSeconds:
+          type: integer
+          format: int32
+        createdAt:
+          type: string
+          format: date-time
+        createdBy:
+          type:
+          - string
+          - "null"
+          format: uuid
+          description: Creating user; null once that user was deleted.
+        enabled:
+          type: boolean
+        id:
+          type: string
+          format: uuid
+        metricId:
+          type: string
+          format: uuid
+        metricName:
+          type: string
+          description: Name of the metric.
+        metricUnit:
+          type: string
+          description: Unit of the metric.
+        minSeverity:
+          type:
+          - string
+          - "null"
+          description: Null unless ANOMALY_SEVERITY.
+          enum:
+          - LOW
+          - MEDIUM
+          - HIGH
+        name:
+          type: string
+        operator:
+          type:
+          - string
+          - "null"
+          description: Null unless THRESHOLD.
+          enum:
+          - GT
+          - GTE
+          - LT
+          - LTE
+        serviceName:
+          type: string
+          description: Name of the service that owns the metric.
+        target:
+          type: string
+          description: Webhook URL or e-mail label. Only visible to authenticated
+            users of the tenant; never written to logs in full.
+        threshold:
+          type:
+          - number
+          - "null"
+          format: double
+          description: Null unless THRESHOLD.
+        updatedAt:
+          type: string
+          format: date-time
+        version:
+          type: integer
+          format: int64
+          description: Changes with every update; send it back with a change.
+      required:
+      - channel
+      - condition
+      - cooldownSeconds
+      - createdAt
+      - createdBy
+      - enabled
+      - id
+      - metricId
+      - metricName
+      - metricUnit
+      - minSeverity
+      - name
+      - operator
+      - serviceName
+      - target
+      - threshold
+      - updatedAt
+      - version
+    AlertRuleEnabledRequest:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        version:
+          type: integer
+          format: int64
+          description: "When given, the change is only applied if the rule still has\
+            \ this version."
+      required:
+      - enabled
+    AlertRuleRequest:
+      type: object
+      description: Fields of an alert rule. THRESHOLD rules need `operator` and `threshold`
+        and no `minSeverity`; ANOMALY_SEVERITY rules need `minSeverity` and neither
+        of the others.
+      properties:
+        channel:
+          type: string
+          enum:
+          - WEBHOOK
+          - EMAIL_LOG
+        condition:
+          type: string
+          enum:
+          - THRESHOLD
+          - ANOMALY_SEVERITY
+        cooldownSeconds:
+          type: integer
+          format: int32
+          description: Seconds after a firing during which the rule stays silent.
+          maximum: 86400
+          minimum: 60
+        enabled:
+          type: boolean
+          default: true
+          description: Defaults to true.
+        metricId:
+          type: string
+          format: uuid
+          description: Metric to watch; it must belong to the caller's tenant.
+        minSeverity:
+          type: string
+          description: "ANOMALY_SEVERITY only: the rule fires for this severity and\
+            \ above."
+          enum:
+          - LOW
+          - MEDIUM
+          - HIGH
+        name:
+          type: string
+          description: "Unique per tenant, 1 to 100 characters."
+          maxLength: 100
+        operator:
+          type: string
+          description: "THRESHOLD only: how a stored value is compared with the threshold."
+          enum:
+          - GT
+          - GTE
+          - LT
+          - LTE
+        target:
+          type: string
+          description: "WEBHOOK: https URL of the receiver (a DNS name, no credentials,\
+            \ port 443 unless configured otherwise, must not resolve to a private\
+            \ or otherwise internal address). EMAIL_LOG: a recipient label of up to\
+            \ 254 characters."
+          maxLength: 2048
+        threshold:
+          type: number
+          format: double
+          description: "THRESHOLD only: finite number."
+      required:
+      - channel
+      - condition
+      - cooldownSeconds
+      - metricId
+      - name
+      - target
+    AlertRuleUpdateRequest:
+      type: object
+      description: "Replaces all fields of an alert rule. `version` is the version\
+        \ that was read; when the rule has changed since, the answer is 409."
+      properties:
+        channel:
+          type: string
+          enum:
+          - WEBHOOK
+          - EMAIL_LOG
+        condition:
+          type: string
+          enum:
+          - THRESHOLD
+          - ANOMALY_SEVERITY
+        cooldownSeconds:
+          type: integer
+          format: int32
+          maximum: 86400
+          minimum: 60
+        enabled:
+          type: boolean
+          default: true
+          description: Defaults to true.
+        metricId:
+          type: string
+          format: uuid
+        minSeverity:
+          type: string
+          enum:
+          - LOW
+          - MEDIUM
+          - HIGH
+        name:
+          type: string
+          maxLength: 100
+        operator:
+          type: string
+          enum:
+          - GT
+          - GTE
+          - LT
+          - LTE
+        target:
+          type: string
+          maxLength: 2048
+        threshold:
+          type: number
+          format: double
+        version:
+          type: integer
+          format: int64
+          description: Version of the rule this change is based on.
+      required:
+      - channel
+      - condition
+      - cooldownSeconds
+      - metricId
+      - name
+      - target
+      - version
     Anomaly:
       type: object
       description: A scored window of a metric that a detector flagged. The same representation
