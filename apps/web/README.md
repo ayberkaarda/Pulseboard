@@ -98,6 +98,11 @@ Retry-After). User-facing text is composed from the status, never from the serve
 stored), answers 404 for `/internal/`, sets the security headers and a Content-Security-Policy from `nginx/`,
 and exposes `GET /healthz` for container health checks.
 
+An nginx error line repeats the request line and the upstream URL, query included. With the real nginx image and
+api-core refusing connections, a request to `/api/v1/stream/anomalies?ticket=...` logged both with the ticket. The stream
+location therefore uses `error_log ... crit`; the same test then left only the query-less access line. Trade-off: upstream
+connection errors of the stream (level error) are not logged any more; other `/api/` locations keep them.
+
 ```bash
 docker build -t pulseboard-web .
 ```
