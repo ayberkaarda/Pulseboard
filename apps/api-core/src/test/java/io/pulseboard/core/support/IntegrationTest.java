@@ -70,15 +70,29 @@ public abstract class IntegrationTest {
     }
 
     protected MetricDefinitionResponse createMetric(String accessToken, UUID serviceId, String name) {
+        return createMetric(accessToken, serviceId, name, "P95");
+    }
+
+    protected MetricDefinitionResponse createMetric(String accessToken, UUID serviceId, String name,
+            String aggregation) {
         return client.post().uri("/api/v1/services/{id}/metrics", serviceId)
                 .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
                 .contentType(MediaType.APPLICATION_JSON)
-                .body(Map.of("name", name, "unit", "ms", "aggregation", "P95"))
+                .body(Map.of("name", name, "unit", "ms", "aggregation", aggregation))
                 .exchange()
                 .expectStatus().isCreated()
                 .expectBody(MetricDefinitionResponse.class)
                 .returnResult()
                 .getResponseBody();
+    }
+
+    /** POSTs a raw ingestion body with an API key. */
+    protected RestTestClient.ResponseSpec ingest(String apiKey, String body) {
+        return client.post().uri("/api/v1/ingest")
+                .header(API_KEY_HEADER, apiKey)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(body)
+                .exchange();
     }
 
     protected ApiKeyCreatedResponse issueApiKey(String accessToken, String name) {

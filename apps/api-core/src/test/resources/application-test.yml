@@ -10,3 +10,12 @@ pulseboard:
       # here; AuthClientRateLimitIntegrationTest covers it with its own small limit. The per-account limit
       # keeps its production value.
       client-capacity: 1000000
+    api-key:
+      # Same reason: all suites share the loopback client. ApiKeyClientRateLimitIntegrationTest covers both
+      # per-client buckets with small limits in its own context.
+      client-capacity: 1000000
+      invalid-capacity: 1000000
+    query:
+      # Query tests share few tenants per class only, but keep them clear of the quota; the quota is covered by
+      # MetricQueryLimitsIntegrationTest in its own context.
+      tenant-capacity: 1000000

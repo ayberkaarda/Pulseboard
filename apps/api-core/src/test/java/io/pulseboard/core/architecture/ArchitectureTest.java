@@ -4,8 +4,10 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static com.tngtech.archunit.library.Architectures.layeredArchitecture;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.tngtech.archunit.core.domain.JavaCall;
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
+import com.tngtech.archunit.core.domain.properties.HasName;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.lang.EvaluationResult;
@@ -72,8 +74,17 @@ class ArchitectureTest {
                 .filter(TenantScopedRepositoryRules.TENANT_SCOPED_REPOSITORY)
                 .map(JavaClass::getSimpleName))
                 .contains("UserRepository", "ApiKeyRepository", "RefreshTokenRepository", "ServiceRepository",
-                        "MetricDefinitionRepository", "JpaServiceRepository", "JpaRefreshTokenRepository")
+                        "MetricDefinitionRepository", "JpaServiceRepository", "JpaRefreshTokenRepository",
+                        "MetricSampleRepository")
                 .doesNotContain("TenantRepository");
+    }
+
+    @Test
+    void bulkWritesNeverGoThroughJpaSaveAll() {
+        // Metric ingestion is a hot path: JDBC batch upserts only, no ORM bulk saves.
+        noClasses().that().resideInAPackage(ROOT + "..")
+                .should().callMethodWhere(JavaCall.Predicates.target(HasName.Predicates.name("saveAll")))
+                .check(production);
     }
 
     @Test

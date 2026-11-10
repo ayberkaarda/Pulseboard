@@ -1,0 +1,90 @@
+package io.pulseboard.core.api;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import io.pulseboard.core.support.IntegrationTest;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import org.junit.jupiter.api.Test;
+
+/**
+ * Keeps {@code contracts/api-core.openapi.yaml} in sync with the springdoc document the application serves.
+ *
+ * <p>In the regular test run a difference fails the build (contract drift). The Gradle task
+ * {@code generateOpenApiDocs} runs this test with {@code pulseboard.contracts.openapi.write=true}, which writes
+ * the served document to the contract file instead.
+ */
+class OpenApiContractTest extends IntegrationTest {
+
+    private static final String CONTRACT_PROPERTY = "pulseboard.contracts.openapi";
+    private static final String WRITE_PROPERTY = "pulseboard.contracts.openapi.write";
+
+    @Test
+    void checkedInContractMatchesTheServedDocument() throws IOException {
+        String served = normalize(client.get().uri("/v3/api-docs.yaml")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(byte[].class).returnResult().getResponseBody());
+        Path contract = Path.of(System.getProperty(CONTRACT_PROPERTY, "../../contracts/api-core.openapi.yaml"));
+
+        if (Boolean.getBoolean(WRITE_PROPERTY)) {
+            Files.writeString(contract, served, StandardCharsets.UTF_8);
+            return;
+        }
+        assertThat(contract).as("contract file; run ./gradlew generateOpenApiDocs").exists();
+        assertThat(normalize(Files.readAllBytes(contract)))
+                .as("contracts/api-core.openapi.yaml drifted from the code; run ./gradlew generateOpenApiDocs")
+                .isEqualTo(served);
+    }
+
+    @Test
+    void documentDescribesThePhaseTwoEndpoints() {
+        client.get().uri("/v3/api-docs")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.openapi").value(String.class, version -> assertThat(version).startsWith("3.1"))
+                .jsonPath("$.servers[0].url").isEqualTo("/")
+                .jsonPath("$.paths['/api/v1/ingest'].post.security[0].apiKey").exists()
+                .jsonPath("$.paths['/api/v1/ingest'].post.responses['202']").exists()
+                .jsonPath("$.paths['/api/v1/ingest'].post.responses['429'].headers['Retry-After']").exists()
+                .jsonPath("$.paths['/api/v1/metrics/{metricId}/points'].get.security[0].bearerAuth").exists()
+                .jsonPath("$.components.schemas.MetricBatch.properties.points.maxItems").isEqualTo(1000)
+                .jsonPath("$.components.securitySchemes.apiKey.name").isEqualTo("X-Api-Key");
+    }
+
+    /** The document must reject what the server rejects and list the errors the server can answer with. */
+    @Test
+    void documentIsAsStrictAsTheRuntime() {
+        client.get().uri("/v3/api-docs")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.components.schemas.MetricBatch.additionalProperties").isEqualTo(false)
+                .jsonPath("$.components.schemas.MetricPoint.additionalProperties").isEqualTo(false)
+                .jsonPath("$.components.schemas.MetricBatch.required[0]").isEqualTo("points")
+                .jsonPath("$.components.schemas.MetricPoint.properties.value.description")
+                .value(String.class, description -> assertThat(description).contains("1e100"))
+                // Problem extension members are top-level on the wire, so they are top-level in the schema.
+                .jsonPath("$.components.schemas.Problem.properties.errors").exists()
+                .jsonPath("$.components.schemas.Problem.properties.properties").doesNotExist()
+                .jsonPath("$.components.schemas.ProblemDetail").doesNotExist()
+                .jsonPath("$.paths['/api/v1/ingest'].post.responses['409']").exists()
+                .jsonPath("$.paths['/api/v1/ingest'].post.responses['500']").exists()
+                .jsonPath("$.paths['/api/v1/ingest'].post.responses['503']").exists()
+                .jsonPath("$.paths['/api/v1/metrics/{metricId}/points'].get.responses['422']").exists()
+                .jsonPath("$.paths['/api/v1/metrics/{metricId}/points'].get.responses['429']").exists()
+                .jsonPath("$.paths['/api/v1/metrics/{metricId}/points'].get.responses['500']").exists()
+                .jsonPath("$.paths['/api/v1/metrics/{metricId}/points'].get.responses['503']").exists()
+                .jsonPath("$.paths['/api/v1/metrics/{metricId}/points'].get.description")
+                .value(String.class, description -> assertThat(description).contains("366 days"));
+    }
+
+    /** UTF-8, LF line endings and exactly one trailing newline, so the file is identical on every platform. */
+    private static String normalize(byte[] content) {
+        String text = new String(content, StandardCharsets.UTF_8).replace("\r\n", "\n");
+        return text.stripTrailing() + "\n";
+    }
+}
