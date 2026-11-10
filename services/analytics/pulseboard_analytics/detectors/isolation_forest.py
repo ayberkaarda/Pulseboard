@@ -1,0 +1,157 @@
+"""Isolation forest detector.
+
+Features come from :func:`pulseboard_analytics.features.build_features`. ``train`` fits a forest
+on a window and remembers the range of its decision function; ``detect`` scores a window with
+a trained forest. ``score = 1 - normalised decision_function`` where the decision function is
+min-max normalised with the range seen at training time (clipped to ``[0, 1]``), so higher means
+more anomalous. A point is an anomaly at ``score >= 0.65``; severity splits ``[0.65, 1.0]`` into
+tertiles (LOW, MEDIUM, HIGH).
+
+Input: see :mod:`pulseboard_analytics.detectors.base`. Series shorter than ``MIN_POINTS`` or with
+a flat value column cannot be trained on and produce no anomalies.
+
+The functions are deterministic: the forest uses ``random_state=42``.
+"""
+
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+
+import numpy as np
+import pandas as pd
+from sklearn.ensemble import IsolationForest
+
+from pulseboard_analytics.detectors.base import (
+    Detector,
+    DetectorResult,
+    Severity,
+    to_datetime,
+    validate_series,
+)
+from pulseboard_analytics.features import build_features
+
+N_ESTIMATORS = 200
+CONTAMINATION = 0.02
+RANDOM_STATE = 42
+MIN_POINTS = 60
+SCORE_THRESHOLD = 0.65
+MEDIUM_FROM = SCORE_THRESHOLD + (1.0 - SCORE_THRESHOLD) / 3.0
+HIGH_FROM = SCORE_THRESHOLD + 2.0 * (1.0 - SCORE_THRESHOLD) / 3.0
+RETRAIN_INTERVAL = timedelta(hours=6)
+RETRAIN_GROWTH = 1.2
+_FLAT_TOLERANCE = 1e-9
+
+
+@dataclass(frozen=True)
+class ForestState:
+    """Persisted training metadata (``detector_state.params``)."""
+
+    trained_at: datetime
+    version: int
+    contamination: float
+    point_count: int
+
+
+@dataclass(frozen=True)
+class TrainedForest:
+    """A fitted forest with the decision function range used for normalisation."""
+
+    model: IsolationForest
+    decision_min: float
+    decision_max: float
+    state: ForestState
+
+
+def severity_for_score(score: float) -> Severity | None:
+    """Map an isolation forest score to a severity; ``None`` below the threshold."""
+    if score >= HIGH_FROM:
+        return Severity.HIGH
+    if score >= MEDIUM_FROM:
+        return Severity.MEDIUM
+    if score >= SCORE_THRESHOLD:
+        return Severity.LOW
+    return None
+
+
+def needs_retrain(
+    state: ForestState | None, point_count: int, now: datetime, *, model_available: bool = True
+) -> bool:
+    """Decide whether the forest must be refitted.
+
+    True without a persisted state, without an in-memory model, when the model is at least
+    6 hours old, or when the point count grew by at least 20 % since training.
+    """
+    if state is None or not model_available:
+        return True
+    if now - state.trained_at >= RETRAIN_INTERVAL:
+        return True
+    return point_count >= state.point_count * RETRAIN_GROWTH
+
+
+def is_trainable(frame: pd.DataFrame) -> bool:
+    """Whether ``frame`` has enough varying data to fit a forest."""
+    if len(frame) < MIN_POINTS:
+        return False
+    values = frame["value"]
+    return bool(values.std() > _FLAT_TOLERANCE * max(1.0, abs(float(values.mean()))))
+
+
+def train(frame: pd.DataFrame, *, trained_at: datetime, version: int) -> TrainedForest:
+    """Fit a forest on ``frame``; raises ``ValueError`` when it is not trainable."""
+    validate_series(frame)
+    if not is_trainable(frame):
+        raise ValueError("series is too short or flat to train an isolation forest")
+    model = IsolationForest(
+        n_estimators=N_ESTIMATORS, contamination=CONTAMINATION, random_state=RANDOM_STATE
+    )
+    model.fit(build_features(frame).to_numpy())
+    decision = model.decision_function(build_features(frame).to_numpy())
+    return TrainedForest(
+        model=model,
+        decision_min=float(decision.min()),
+        decision_max=float(decision.max()),
+        state=ForestState(
+            trained_at=trained_at,
+            version=version,
+            contamination=CONTAMINATION,
+            point_count=len(frame),
+        ),
+    )
+
+
+def anomaly_scores(frame: pd.DataFrame, forest: TrainedForest) -> np.ndarray:
+    """Return the anomaly score in ``[0, 1]`` of every row of ``frame``."""
+    decision = forest.model.decision_function(build_features(frame).to_numpy())
+    span = forest.decision_max - forest.decision_min
+    if span <= 0.0:
+        return np.zeros(len(frame))
+    normalised = np.clip((decision - forest.decision_min) / span, 0.0, 1.0)
+    return np.asarray(1.0 - normalised, dtype=np.float64)
+
+
+def detect(frame: pd.DataFrame, forest: TrainedForest) -> list[DetectorResult]:
+    """Return the anomalous points of ``frame`` according to ``forest``."""
+    validate_series(frame)
+    if not is_trainable(frame):
+        return []
+    scores = anomaly_scores(frame, forest)
+    results: list[DetectorResult] = []
+    for index in np.flatnonzero(scores >= SCORE_THRESHOLD):
+        score = float(scores[index])
+        severity = severity_for_score(score)
+        if severity is None:
+            continue
+        ts = to_datetime(frame["ts"].iloc[index])
+        results.append(
+            DetectorResult(
+                detector=Detector.ISOLATION_FOREST,
+                window_start=ts,
+                window_end=ts,
+                score=score,
+                severity=severity,
+                details={
+                    "value": float(frame["value"].iloc[index]),
+                    "model_version": forest.state.version,
+                },
+            )
+        )
+    return results
