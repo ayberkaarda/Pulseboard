@@ -62,6 +62,8 @@ class Settings:
     verify_db_roles: bool = True
     metric_lock_timeout_seconds: int = 10
     lease_margin_seconds: int = 5
+    db_pool_timeout_seconds: int = 5
+    db_connect_timeout_seconds: int = 5
 
     def __post_init__(self) -> None:
         # Same rule as api-core: not blank, and long enough once surrounding whitespace is gone.
@@ -95,4 +97,6 @@ class Settings:
             verify_db_roles=_flag(source, "VERIFY_DB_ROLES", True),
             metric_lock_timeout_seconds=_positive_int(source, "METRIC_LOCK_TIMEOUT_SECONDS", 10),
             lease_margin_seconds=_positive_int(source, "SCORE_LEASE_MARGIN_SECONDS", 5),
+            db_pool_timeout_seconds=_positive_int(source, "DB_POOL_TIMEOUT_SECONDS", 5),
+            db_connect_timeout_seconds=_positive_int(source, "DB_CONNECT_TIMEOUT_SECONDS", 5),
         )

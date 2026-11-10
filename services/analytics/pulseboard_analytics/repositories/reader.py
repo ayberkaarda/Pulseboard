@@ -10,6 +10,7 @@ import structlog
 from sqlalchemy import Engine, exists, select, text
 
 from pulseboard_analytics.budget import Budget
+from pulseboard_analytics.repositories.connections import connect
 from pulseboard_analytics.repositories.models import MetricRef
 from pulseboard_analytics.repositories.tables import metric_definition, metric_point
 from pulseboard_analytics.repositories.timeouts import apply_budget
@@ -61,7 +62,7 @@ class MetricReader:
         stmt = select(metric_definition.c.id, metric_definition.c.tenant_id).where(
             metric_definition.c.id == metric_id
         )
-        with self._engine.connect() as conn:
+        with connect(self._engine) as conn:
             row = conn.execute(stmt).one_or_none()
         return None if row is None else MetricRef(id=row.id, tenant_id=row.tenant_id)
 
@@ -79,7 +80,7 @@ class MetricReader:
             .where(has_point)
             .order_by(metric_definition.c.id)
         )
-        with self._engine.connect() as conn:
+        with connect(self._engine, budget) as conn:
             apply_budget(conn, budget)
             rows = conn.execute(stmt).all()
         return [MetricRef(id=row.id, tenant_id=row.tenant_id) for row in rows]
@@ -122,9 +123,8 @@ class MetricReader:
             .limit(self._max_points + 1)
         )
         width = max(1, math.ceil((until - since).total_seconds() / (self._max_points - 1)))
-        with self._engine.connect().execution_options(
-            isolation_level="REPEATABLE READ", postgresql_readonly=True
-        ) as conn:
+        with connect(self._engine, budget) as conn:
+            conn.execution_options(isolation_level="REPEATABLE READ", postgresql_readonly=True)
             apply_budget(conn, budget)
             raw = conn.execute(raw_query).all()
             if len(raw) <= self._max_points:

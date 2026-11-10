@@ -35,8 +35,14 @@ class Runtime:
     @classmethod
     def build(cls, settings: Settings) -> Runtime:
         """Create engines and clients; nothing connects until first use."""
-        reader_engine = make_engine(settings.database_reader_url)
-        writer_engine = make_engine(settings.database_writer_url)
+        pool_timeout = float(settings.db_pool_timeout_seconds)
+        connect_timeout = settings.db_connect_timeout_seconds
+        reader_engine = make_engine(
+            settings.database_reader_url, pool_timeout=pool_timeout, connect_timeout=connect_timeout
+        )
+        writer_engine = make_engine(
+            settings.database_writer_url, pool_timeout=pool_timeout, connect_timeout=connect_timeout
+        )
         reader = MetricReader(reader_engine)
         return cls(
             settings=settings,
