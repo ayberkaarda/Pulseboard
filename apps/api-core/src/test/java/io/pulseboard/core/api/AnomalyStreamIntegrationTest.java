@@ -386,6 +386,9 @@ class AnomalyStreamIntegrationTest extends AnomalyIntegrationTest {
             await().atMost(remaining(deadline)).until(() -> admission.openStreams() <= openBefore);
             assertThat(Instant.now()).as("released within the single deadline")
                     .isBeforeOrEqualTo(deadline.plusSeconds(1));
+            // The end is neither early nor late: within a small tolerance before expiry and the bounded interval after.
+            assertThat(stream.endedAt()).as("stream end time")
+                    .isAfterOrEqualTo(expiry.minusMillis(300)).isBeforeOrEqualTo(deadline);
         }
     }
 

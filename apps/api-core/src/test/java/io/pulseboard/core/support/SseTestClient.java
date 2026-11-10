@@ -10,6 +10,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -35,6 +36,7 @@ public final class SseTestClient implements AutoCloseable {
     private final List<String> comments = new CopyOnWriteArrayList<>();
     private final List<Event> events = new CopyOnWriteArrayList<>();
     private final AtomicBoolean ended = new AtomicBoolean();
+    private volatile Instant endedAt;
     private Thread reader;
 
     private SseTestClient(HttpResponse<InputStream> response, String errorBody) {
@@ -97,6 +99,11 @@ public final class SseTestClient implements AutoCloseable {
         return ended.get();
     }
 
+    /** When the read loop saw the end of the stream, or null while it is still open. */
+    public Instant endedAt() {
+        return endedAt;
+    }
+
     /** Waits until an event matching the predicate arrived and returns it. */
     public Event awaitEvent(Predicate<Event> predicate, Duration timeout) {
         Awaitility.await().atMost(timeout).pollInterval(Duration.ofMillis(25))
@@ -141,6 +148,7 @@ public final class SseTestClient implements AutoCloseable {
         } catch (IOException ex) {
             // The connection was closed locally or by the server.
         } finally {
+            endedAt = Instant.now();
             ended.set(true);
         }
     }
