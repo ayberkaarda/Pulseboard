@@ -17,8 +17,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 
 /**
- * V6 on data that already exists: the migrations up to V5 are applied to a scratch schema, refresh tokens are
- * inserted, and then V6 runs over them.
+ * V6 and V7 on data that already exists: the migrations up to V5 are applied to a scratch schema, refresh tokens are
+ * inserted, and then V6 (and V7) run over them.
  */
 class RefreshFamilyLifetimeMigrationIntegrationTest extends IntegrationTest {
 
@@ -74,7 +74,63 @@ class RefreshFamilyLifetimeMigrationIntegrationTest extends IntegrationTest {
     }
 
     @Test
-    void migrationSixDoesNotChangeTheAnalyticsGrants() {
+    void migrationSevenGivesEveryTokenOfAFamilyTheLatestEndAlreadyComputed() throws Exception {
+        jdbcTemplate.execute("DROP SCHEMA IF EXISTS " + SCHEMA + " CASCADE");
+        try {
+            flyway("5").migrate();
+            JdbcTemplate scratch = new JdbcTemplate(new SingleConnectionDataSource(
+                    dataSource.getConnection(), true));
+            scratch.execute("SET search_path TO " + SCHEMA);
+
+            Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+            UUID tenant = UUID.randomUUID();
+            UUID user = UUID.randomUUID();
+            scratch.update("INSERT INTO tenant (id, slug, name, plan, created_at) VALUES (?, 'mig7', 'Mig', 'FREE', ?)",
+                    tenant, Timestamp.from(now));
+            scratch.update("INSERT INTO app_user (id, tenant_id, email, password_hash, role) "
+                    + "VALUES (?, ?, 'a@example.com', 'x', 'OWNER')", user, tenant);
+
+            // Issuance on days 0, 29 and 35 of a family with token expiries on days 7, 36 and 42.
+            Instant start = now.minus(35, ChronoUnit.DAYS);
+            UUID family = UUID.randomUUID();
+            insertToken(scratch, tenant, user, family, start, start.plus(7, ChronoUnit.DAYS));
+            insertToken(scratch, tenant, user, family, start.plus(29, ChronoUnit.DAYS),
+                    start.plus(36, ChronoUnit.DAYS));
+            insertToken(scratch, tenant, user, family, start.plus(35, ChronoUnit.DAYS),
+                    start.plus(42, ChronoUnit.DAYS));
+            // A consistent family and a single token family stay as V6 left them.
+            UUID calm = UUID.randomUUID();
+            insertToken(scratch, tenant, user, calm, now.minus(3, ChronoUnit.DAYS), now.plus(4, ChronoUnit.DAYS));
+            insertToken(scratch, tenant, user, calm, now.minus(1, ChronoUnit.DAYS), now.plus(6, ChronoUnit.DAYS));
+
+            flyway("6").migrate();
+            // The defect V7 repairs: V6 alone leaves three different values inside the family.
+            assertThat(expiries(scratch, family)).containsExactlyInAnyOrder(
+                    Timestamp.from(start.plus(30, ChronoUnit.DAYS)), Timestamp.from(start.plus(36, ChronoUnit.DAYS)),
+                    Timestamp.from(start.plus(42, ChronoUnit.DAYS)));
+            List<Timestamp> calmBefore = expiries(scratch, calm);
+
+            flyway(null).migrate();
+
+            Timestamp familyEnd = Timestamp.from(start.plus(42, ChronoUnit.DAYS));
+            assertThat(expiries(scratch, family)).hasSize(3).containsOnly(familyEnd);
+            // Nothing shortened: the end is not before the latest token the session holds.
+            assertThat(scratch.queryForObject(
+                    "SELECT count(*) FROM refresh_token WHERE family_expires_at < expires_at", Integer.class)).isZero();
+            assertThat(expiries(scratch, calm)).containsExactlyInAnyOrderElementsOf(calmBefore);
+            assertThat(scratch.queryForObject("""
+                    SELECT count(*) FROM (SELECT family_id FROM refresh_token GROUP BY family_id
+                                          HAVING count(DISTINCT family_expires_at) > 1) f
+                    """, Integer.class)).isZero();
+            assertThatThrownBy(() -> insertTokenWithFamilyEnd(scratch, tenant, user, now))
+                    .hasMessageContaining("refresh_token_family_expiry_ck");
+        } finally {
+            jdbcTemplate.execute("DROP SCHEMA IF EXISTS " + SCHEMA + " CASCADE");
+        }
+    }
+
+    @Test
+    void migrationsSixAndSevenDoNotChangeTheAnalyticsGrants() {
         assertThat(jdbcTemplate.queryForList("""
                 SELECT grantee FROM information_schema.role_table_grants
                  WHERE table_name = 'refresh_token' AND grantee IN ('analytics_reader', 'analytics_writer')

@@ -136,6 +136,39 @@ class AuthIntegrationTest extends IntegrationTest {
     }
 
     @Test
+    void everyTokenOfAFamilyCarriesTheSameFamilyEndAndSuccessorsAreCappedByIt() {
+        TokenResponse initial = registerTenant();
+        TokenResponse second = refresh(initial.refreshToken()).expectStatus().isOk()
+                .expectBody(TokenResponse.class).returnResult().getResponseBody();
+        TokenResponse third = refresh(second.refreshToken()).expectStatus().isOk()
+                .expectBody(TokenResponse.class).returnResult().getResponseBody();
+
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT count(DISTINCT family_expires_at) FROM refresh_token WHERE user_id = ?
+                """, Integer.class, initial.userId())).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT count(*) FROM refresh_token WHERE user_id = ? AND expires_at > family_expires_at
+                """, Integer.class, initial.userId())).isZero();
+
+        // A family that ends soon: the successor ends with it and copies the family value, not 7 days from now.
+        jdbcTemplate.update("""
+                UPDATE refresh_token SET expires_at = now() + interval '30 minutes',
+                       family_expires_at = now() + interval '1 hour'
+                 WHERE user_id = ?
+                """, initial.userId());
+        TokenResponse fourth = refresh(third.refreshToken()).expectStatus().isOk()
+                .expectBody(TokenResponse.class).returnResult().getResponseBody();
+        assertThat(fourth.refreshToken()).isNotEqualTo(third.refreshToken());
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT count(DISTINCT family_expires_at) FROM refresh_token WHERE user_id = ?
+                """, Integer.class, initial.userId())).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT count(*) FROM refresh_token
+                 WHERE user_id = ? AND expires_at = family_expires_at AND family_expires_at < now() + interval '2 hours'
+                """, Integer.class, initial.userId())).isEqualTo(1);
+    }
+
+    @Test
     void reusingARotatedTokenRevokesTheWholeFamily() {
         TokenResponse initial = registerTenant();
         TokenResponse rotated = refresh(initial.refreshToken())
