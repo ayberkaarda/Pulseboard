@@ -68,20 +68,30 @@ async function seed() {
   const started = Date.now();
   let anomalies = 0;
   while (Date.now() - started < DEADLINE_MS) {
-    const page = await api('GET', `/api/v1/anomalies?metricId=${metric.body.id}&size=100`, { token });
+    const page = await api('GET', `/api/v1/anomalies?metricId=${metric.body.id}&size=100`, {
+      token,
+    });
     anomalies = page.body?.totalItems ?? 0;
     if (anomalies > 0) break;
     await new Promise((resolve) => setTimeout(resolve, 3000));
   }
   console.log(`seeded: ${anomalies} anomalies after ${Math.round((Date.now() - started) / 1000)}s`);
-  return { email, password, slug: `audit-${suffix}`, serviceId: service.body.id, metricId: metric.body.id };
+  return {
+    email,
+    password,
+    slug: `audit-${suffix}`,
+    serviceId: service.body.id,
+    metricId: metric.body.id,
+  };
 }
 
 async function scan(page, name, scheme, results) {
   const axe = await new AxeBuilder({ page }).withTags(TAGS).analyze();
   const label = `${name} (${scheme})`;
   results.push({ label, violations: axe.violations, passes: axe.passes.length });
-  console.log(`${axe.violations.length === 0 ? 'ok  ' : 'FAIL'} ${label}: ${axe.violations.length} violations, ${axe.passes.length} rules passed`);
+  console.log(
+    `${axe.violations.length === 0 ? 'ok  ' : 'FAIL'} ${label}: ${axe.violations.length} violations, ${axe.passes.length} rules passed`,
+  );
   for (const violation of axe.violations) {
     console.log(`     ${violation.id} (${violation.impact}): ${violation.help}`);
     for (const node of violation.nodes.slice(0, 3)) console.log(`       ${node.target.join(' ')}`);
@@ -93,7 +103,10 @@ const browser = await chromium.launch({ channel: CHANNEL });
 const results = [];
 try {
   for (const scheme of ['light', 'dark']) {
-    const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, colorScheme: scheme });
+    const context = await browser.newContext({
+      viewport: { width: 1280, height: 900 },
+      colorScheme: scheme,
+    });
     const page = await context.newPage();
     await page.goto(`${BASE}/login`);
     await page.getByRole('button', { name: 'Sign in' }).waitFor();
@@ -111,7 +124,11 @@ try {
     await page.waitForURL(/\/app\/overview/);
 
     await page.getByRole('list', { name: 'Services', exact: true }).waitFor();
-    await page.getByText('open anomal', { exact: false }).first().waitFor({ timeout: 20_000 }).catch(() => undefined);
+    await page
+      .getByText('open anomal', { exact: false })
+      .first()
+      .waitFor({ timeout: 20_000 })
+      .catch(() => undefined);
     await scan(page, '/app/overview', scheme, results);
 
     await page.goto(`${BASE}/app/anomalies`);

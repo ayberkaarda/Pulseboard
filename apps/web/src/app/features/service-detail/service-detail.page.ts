@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, effect, inject, input } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
-import { MetricDefinition } from '../../api/models';
+import { MetricDefinition, Service } from '../../api/models';
 import { LoadErrorComponent } from '../../shared/load-state/load-error.component';
 import { SkeletonRowsComponent } from '../../shared/load-state/skeleton-rows.component';
 import { PageHeadComponent } from '../../shared/page-head/page-head.component';
@@ -40,7 +40,7 @@ export class ServiceDetailPage {
   protected readonly detail = computed(
     () => this.store.details()[this.id()] ?? { status: 'idle', items: [], problem: null },
   );
-  protected readonly service = computed(() => this.detail().items[0]);
+  protected readonly service = computed<Service | undefined>(() => this.detail().items[0]);
   protected readonly metrics = computed(
     () => this.store.metrics()[this.id()] ?? { status: 'idle', items: [], problem: null },
   );
