@@ -114,7 +114,7 @@ public class MetricQueryService {
     }
 
     /** Smallest microsecond instant that is not before {@code instant}. */
-    static Instant ceilToMicros(Instant instant) {
+    public static Instant ceilToMicros(Instant instant) {
         Instant truncated = instant.truncatedTo(ChronoUnit.MICROS);
         return truncated.equals(instant) ? instant : truncated.plus(1, ChronoUnit.MICROS);
     }

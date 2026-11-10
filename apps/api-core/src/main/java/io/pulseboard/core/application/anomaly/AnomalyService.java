@@ -3,12 +3,14 @@ package io.pulseboard.core.application.anomaly;
 import io.pulseboard.core.application.common.InvalidRequestException;
 import io.pulseboard.core.application.common.InvalidRequestException.Violation;
 import io.pulseboard.core.application.common.ResourceNotFoundException;
+import io.pulseboard.core.application.query.MetricQueryService;
 import io.pulseboard.core.domain.anomaly.Anomaly;
 import io.pulseboard.core.domain.anomaly.AnomalyPage;
 import io.pulseboard.core.domain.anomaly.AnomalyQuery;
 import io.pulseboard.core.domain.anomaly.AnomalyRepository;
 import io.pulseboard.core.domain.tenancy.TenantId;
 import java.time.Clock;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -47,7 +49,14 @@ public class AnomalyService {
         if (!violations.isEmpty()) {
             throw new InvalidRequestException("The query parameters are invalid", violations);
         }
-        return anomalyRepository.search(tenantId, query, page, size);
+        // Storage has microsecond precision: [from, to) on nanosecond bounds equals [ceil(from), ceil(to)).
+        AnomalyQuery normalised = new AnomalyQuery(query.metricId(), query.serviceId(), query.severity(),
+                query.acknowledged(), ceil(query.from()), ceil(query.to()));
+        return anomalyRepository.search(tenantId, normalised, page, size);
+    }
+
+    private static Instant ceil(Instant bound) {
+        return bound == null ? null : MetricQueryService.ceilToMicros(bound);
     }
 
     @Transactional(readOnly = true)
