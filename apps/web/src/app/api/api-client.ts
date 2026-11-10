@@ -58,6 +58,20 @@ export class ApiClient {
     return this.send<ResponseOf<P, 'post'>>('POST', path, args[0]);
   }
 
+  put<P extends ApiPath<'put'>>(
+    path: P,
+    ...args: OptionsArg<P, 'put'>
+  ): Observable<ResponseOf<P, 'put'>> {
+    return this.send<ResponseOf<P, 'put'>>('PUT', path, args[0]);
+  }
+
+  patch<P extends ApiPath<'patch'>>(
+    path: P,
+    ...args: OptionsArg<P, 'patch'>
+  ): Observable<ResponseOf<P, 'patch'>> {
+    return this.send<ResponseOf<P, 'patch'>>('PATCH', path, args[0]);
+  }
+
   delete<P extends ApiPath<'delete'>>(
     path: P,
     ...args: OptionsArg<P, 'delete'>

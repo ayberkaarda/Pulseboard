@@ -51,6 +51,36 @@ describe('ApiClient', () => {
     request.flush({});
   });
 
+  it('sends PUT and PATCH with their typed bodies', () => {
+    api
+      .patch('/api/v1/alert-rules/{id}', { path: { id: 'r1' }, body: { enabled: false } })
+      .subscribe();
+    const patch = http.expectOne('/api/v1/alert-rules/r1');
+    expect(patch.request.method).toBe('PATCH');
+    expect(patch.request.body).toEqual({ enabled: false });
+    patch.flush({});
+
+    api
+      .put('/api/v1/alert-rules/{id}', {
+        path: { id: 'r1' },
+        body: {
+          channel: 'EMAIL_LOG',
+          condition: 'THRESHOLD',
+          cooldownSeconds: 60,
+          enabled: true,
+          metricId: 'm',
+          name: 'n',
+          target: 't',
+          version: 3,
+        },
+      })
+      .subscribe();
+    const put = http.expectOne('/api/v1/alert-rules/r1');
+    expect(put.request.method).toBe('PUT');
+    expect(put.request.body).toMatchObject({ version: 3 });
+    put.flush({});
+  });
+
   it('serialises query values, skips undefined and repeats arrays', () => {
     const params = buildParams({ from: '2026-01-01T00:00:00Z', step: undefined, tag: ['a', 'b'] });
     expect(params.getAll('tag')).toEqual(['a', 'b']);

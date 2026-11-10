@@ -3,7 +3,7 @@ import { HttpContext } from '@angular/common/http';
 import type { paths } from './generated/schema';
 
 /** Methods the client exposes. */
-export type ApiMethod = 'get' | 'post' | 'delete';
+export type ApiMethod = 'get' | 'post' | 'put' | 'patch' | 'delete';
 
 /** Public API paths that offer the method. Service to service routes are never reachable from the browser. */
 export type ApiPath<M extends ApiMethod> = {
