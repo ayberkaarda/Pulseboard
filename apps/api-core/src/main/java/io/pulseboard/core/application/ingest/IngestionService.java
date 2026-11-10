@@ -1,5 +1,6 @@
 package io.pulseboard.core.application.ingest;
 
+import io.pulseboard.core.application.alert.AlertEvaluationService;
 import io.pulseboard.core.application.auth.AuthenticationFailedException;
 import io.pulseboard.core.application.ratelimit.RateLimiter;
 import io.pulseboard.core.domain.metrics.MetricSample;
@@ -63,14 +64,17 @@ public class IngestionService {
     private final MetricBatchParser batchParser;
     private final RateLimiter rateLimiter;
     private final IngestionPolicy policy;
+    private final AlertEvaluationService alertEvaluation;
 
     public IngestionService(TenantRepository tenantRepository, MetricSampleRepository sampleRepository,
-            MetricBatchParser batchParser, RateLimiter rateLimiter, IngestionPolicy policy) {
+            MetricBatchParser batchParser, RateLimiter rateLimiter, IngestionPolicy policy,
+            AlertEvaluationService alertEvaluation) {
         this.tenantRepository = tenantRepository;
         this.sampleRepository = sampleRepository;
         this.batchParser = batchParser;
         this.rateLimiter = rateLimiter;
         this.policy = policy;
+        this.alertEvaluation = alertEvaluation;
     }
 
     /** Maximum accepted size of a raw request body, in bytes. */
@@ -110,11 +114,15 @@ public class IngestionService {
         }
 
         int accepted = 0;
+        List<MetricSample> storedSamples = new ArrayList<>();
         if (!samples.isEmpty()) {
             List<SampleWriteOutcome> outcomes = sampleRepository.upsert(tenantId, samples);
             for (int i = 0; i < outcomes.size(); i++) {
                 switch (outcomes.get(i)) {
-                    case STORED -> accepted++;
+                    case STORED -> {
+                        accepted++;
+                        storedSamples.add(samples.get(i));
+                    }
                     case UNKNOWN_METRIC -> rejected.add(new IngestionResult.Rejection(sampleIndexes.get(i),
                             UNKNOWN_METRIC));
                     case OUTSIDE_STORAGE_RANGE -> rejected.add(new IngestionResult.Rejection(sampleIndexes.get(i),
@@ -126,6 +134,10 @@ public class IngestionService {
             }
         }
         rejected.sort((left, right) -> Integer.compare(left.index(), right.index()));
+        // The batch is committed. Evaluation never throws, so the response does not depend on it.
+        if (!storedSamples.isEmpty()) {
+            alertEvaluation.onSamplesStored(tenantId, storedSamples);
+        }
         return new IngestionResult(accepted, rejected);
     }
 
