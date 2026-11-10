@@ -4,6 +4,96 @@
  */
 
 export interface paths {
+    "/api/v1/alert-events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List alert events
+         * @description Alert events of the caller's tenant, newest first (trigger time, then id, both descending), so consecutive pages never overlap. `from` (inclusive) and `to` (exclusive) filter on the trigger time. At most 100 per page.
+         */
+        get: operations["listAlertEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/alert-events/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read one alert event */
+        get: operations["getAlertEvent"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/alert-rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List alert rules
+         * @description All rules of the caller's tenant, oldest first (a tenant owns at most 50 by default).
+         */
+        get: operations["listAlertRules"];
+        put?: never;
+        /**
+         * Create an alert rule
+         * @description OWNER and ADMIN only. A WEBHOOK target is checked against server-side request forgery rules before it is stored (see the `target` field) and again for every delivery. Deliveries are POST requests with the event's `payload` as the JSON body and the headers `X-Pulseboard-Event-Id`, `X-Pulseboard-Timestamp` (Unix seconds) and `X-Pulseboard-Signature`: the lower-case hex HMAC-SHA256 of `<timestamp>.<raw body>`, keyed with the server's ALERT_WEBHOOK_SIGNING_SECRET. A receiver recomputes it over the bytes it received, compares in constant time, rejects old timestamps and deduplicates on the event id (delivery is at least once). Redirects are not followed. 2xx counts as delivered, 4xx other than 408 and 429 as a permanent failure, anything else is retried (4 attempts by default, 10 s, 60 s and 300 s apart).
+         */
+        post: operations["createAlertRule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/alert-rules/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read one alert rule */
+        get: operations["getAlertRule"];
+        /**
+         * Replace an alert rule
+         * @description OWNER and ADMIN only. Optimistic concurrency: `version` must be the version that was read; if the rule changed meanwhile the answer is 409 (type version-conflict).
+         */
+        put: operations["updateAlertRule"];
+        post?: never;
+        /**
+         * Delete an alert rule
+         * @description OWNER and ADMIN only. The events of the rule are deleted with it.
+         */
+        delete: operations["deleteAlertRule"];
+        options?: never;
+        head?: never;
+        /**
+         * Enable or disable an alert rule
+         * @description OWNER and ADMIN only. Without `version` the flag is simply set.
+         */
+        patch: operations["setAlertRuleEnabled"];
+        trace?: never;
+    };
     "/api/v1/anomalies": {
         parameters: {
             query?: never;
@@ -337,6 +427,196 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @description An alert that was raised, with its delivery state. Delivery is at least once: a receiver should deduplicate on `id`. */
+        AlertEvent: {
+            /**
+             * Format: int32
+             * @description Delivery attempts started so far.
+             */
+            attempts: number;
+            /**
+             * Format: date-time
+             * @description Null unless SENT.
+             */
+            deliveredAt: string | null;
+            /** @enum {string} */
+            deliveryStatus: "PENDING" | "SENT" | "FAILED";
+            /** Format: uuid */
+            id: string;
+            /** @description Reason of the last failed attempt (a status code or an error class, never a URL or a response body). */
+            lastError: string | null;
+            /**
+             * Format: date-time
+             * @description When the next attempt is due; null unless PENDING.
+             */
+            nextAttemptAt: string | null;
+            /** @description The document that is delivered to the receiver. */
+            payload: {
+                [key: string]: unknown;
+            };
+            /** Format: uuid */
+            ruleId: string;
+            /** @description Current name of the rule. */
+            ruleName: string;
+            /** @description What caused the event: the timestamp of the metric point or the id of the anomaly. Unique per rule. */
+            sourceRef: string;
+            /** Format: date-time */
+            triggeredAt: string;
+        };
+        /** @description One page of alert events, newest first. */
+        AlertEventPage: {
+            items: components["schemas"]["AlertEvent"][];
+            /**
+             * Format: int32
+             * @description Zero-based page number.
+             */
+            page: number;
+            /**
+             * Format: int32
+             * @description Requested page size.
+             */
+            size: number;
+            /**
+             * Format: int64
+             * @description Number of events that match the filters.
+             */
+            totalItems: number;
+            /**
+             * Format: int64
+             * @description Number of pages of this size.
+             */
+            totalPages: number;
+        };
+        /** @description An alert rule of the caller's tenant. */
+        AlertRule: {
+            /** @enum {string} */
+            channel: "WEBHOOK" | "EMAIL_LOG";
+            /** @enum {string} */
+            condition: "THRESHOLD" | "ANOMALY_SEVERITY";
+            /** Format: int32 */
+            cooldownSeconds: number;
+            /** Format: date-time */
+            createdAt: string;
+            /**
+             * Format: uuid
+             * @description Creating user; null once that user was deleted.
+             */
+            createdBy: string | null;
+            enabled: boolean;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            metricId: string;
+            /** @description Name of the metric. */
+            metricName: string;
+            /** @description Unit of the metric. */
+            metricUnit: string;
+            /**
+             * @description Null unless ANOMALY_SEVERITY.
+             * @enum {string|null}
+             */
+            minSeverity: "LOW" | "MEDIUM" | "HIGH" | null;
+            name: string;
+            /**
+             * @description Null unless THRESHOLD.
+             * @enum {string|null}
+             */
+            operator: "GT" | "GTE" | "LT" | "LTE" | null;
+            /** @description Name of the service that owns the metric. */
+            serviceName: string;
+            /** @description Webhook URL or e-mail label. Only visible to authenticated users of the tenant; never written to logs in full. */
+            target: string;
+            /**
+             * Format: double
+             * @description Null unless THRESHOLD.
+             */
+            threshold: number | null;
+            /** Format: date-time */
+            updatedAt: string;
+            /**
+             * Format: int64
+             * @description Changes with every update; send it back with a change.
+             */
+            version: number;
+        };
+        AlertRuleEnabledRequest: {
+            enabled: boolean;
+            /**
+             * Format: int64
+             * @description When given, the change is only applied if the rule still has this version.
+             */
+            version?: number;
+        };
+        /** @description Fields of an alert rule. THRESHOLD rules need `operator` and `threshold` and no `minSeverity`; ANOMALY_SEVERITY rules need `minSeverity` and neither of the others. */
+        AlertRuleRequest: {
+            /** @enum {string} */
+            channel: "WEBHOOK" | "EMAIL_LOG";
+            /** @enum {string} */
+            condition: "THRESHOLD" | "ANOMALY_SEVERITY";
+            /**
+             * Format: int32
+             * @description Seconds after a firing during which the rule stays silent.
+             */
+            cooldownSeconds: number;
+            /**
+             * @description Defaults to true.
+             * @default true
+             */
+            enabled: boolean;
+            /**
+             * Format: uuid
+             * @description Metric to watch; it must belong to the caller's tenant.
+             */
+            metricId: string;
+            /**
+             * @description ANOMALY_SEVERITY only: the rule fires for this severity and above.
+             * @enum {string}
+             */
+            minSeverity?: "LOW" | "MEDIUM" | "HIGH";
+            /** @description Unique per tenant, 1 to 100 characters. */
+            name: string;
+            /**
+             * @description THRESHOLD only: how a stored value is compared with the threshold.
+             * @enum {string}
+             */
+            operator?: "GT" | "GTE" | "LT" | "LTE";
+            /** @description WEBHOOK: https URL of the receiver (a DNS name, no credentials, port 443 unless configured otherwise, must not resolve to a private or otherwise internal address). EMAIL_LOG: a recipient label of up to 254 characters. */
+            target: string;
+            /**
+             * Format: double
+             * @description THRESHOLD only: finite number.
+             */
+            threshold?: number;
+        };
+        /** @description Replaces all fields of an alert rule. `version` is the version that was read; when the rule has changed since, the answer is 409. */
+        AlertRuleUpdateRequest: {
+            /** @enum {string} */
+            channel: "WEBHOOK" | "EMAIL_LOG";
+            /** @enum {string} */
+            condition: "THRESHOLD" | "ANOMALY_SEVERITY";
+            /** Format: int32 */
+            cooldownSeconds: number;
+            /**
+             * @description Defaults to true.
+             * @default true
+             */
+            enabled: boolean;
+            /** Format: uuid */
+            metricId: string;
+            /** @enum {string} */
+            minSeverity?: "LOW" | "MEDIUM" | "HIGH";
+            name: string;
+            /** @enum {string} */
+            operator?: "GT" | "GTE" | "LT" | "LTE";
+            target: string;
+            /** Format: double */
+            threshold?: number;
+            /**
+             * Format: int64
+             * @description Version of the rule this change is based on.
+             */
+            version: number;
+        };
         /** @description A scored window of a metric that a detector flagged. The same representation is the data of every server-sent event on /api/v1/stream/anomalies. */
         Anomaly: {
             /**
@@ -664,6 +944,523 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    listAlertEvents: {
+        parameters: {
+            query?: {
+                /** @description Only events of this rule. */
+                ruleId?: string;
+                /** @description Only events with this delivery status. */
+                status?: "PENDING" | "SENT" | "FAILED";
+                /** @description Inclusive lower bound of the trigger time, RFC 3339 (encode '+' as %2B). */
+                from?: string;
+                /** @description Exclusive upper bound of the trigger time, RFC 3339 (encode '+' as %2B). */
+                to?: string;
+                /** @description Zero-based page number. */
+                page?: number;
+                /** @description Page size, 1 to 100. */
+                size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of alert events */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertEventPage"];
+                };
+            };
+            /** @description Invalid filter or paging parameter */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Missing or invalid access token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not authenticated as a user */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unexpected error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getAlertEvent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The event */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertEvent"];
+                };
+            };
+            /** @description Missing or invalid access token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not authenticated as a user */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such event for the caller's tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unexpected error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listAlertRules: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The rules */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertRule"][];
+                };
+            };
+            /** @description Missing or invalid access token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not a user of the tenant, or not an OWNER or ADMIN for a change */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unexpected error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    createAlertRule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AlertRuleRequest"];
+            };
+        };
+        responses: {
+            /** @description The rule was created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertRule"];
+                };
+            };
+            /** @description Invalid field, unknown metric or unacceptable webhook target */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Missing or invalid access token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not a user of the tenant, or not an OWNER or ADMIN for a change */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The name is taken (type conflict) or the tenant has the maximum number of rules (type alert-rule-limit) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unexpected error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getAlertRule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The rule */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertRule"];
+                };
+            };
+            /** @description Missing or invalid access token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not a user of the tenant, or not an OWNER or ADMIN for a change */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such rule for the caller's tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unexpected error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    updateAlertRule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AlertRuleUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description The updated rule */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertRule"];
+                };
+            };
+            /** @description Invalid field, unknown metric or unacceptable webhook target */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Missing or invalid access token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not a user of the tenant, or not an OWNER or ADMIN for a change */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such rule for the caller's tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stale version (type version-conflict) or the name is taken (type conflict) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unexpected error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    deleteAlertRule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The rule was deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Missing or invalid access token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not a user of the tenant, or not an OWNER or ADMIN for a change */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such rule for the caller's tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unexpected error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    setAlertRuleEnabled: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AlertRuleEnabledRequest"];
+            };
+        };
+        responses: {
+            /** @description The updated rule */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertRule"];
+                };
+            };
+            /** @description `enabled` is missing */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Missing or invalid access token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not a user of the tenant, or not an OWNER or ADMIN for a change */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description No such rule for the caller's tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Stale version (type version-conflict) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unexpected error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     list: {
         parameters: {
             query?: {
