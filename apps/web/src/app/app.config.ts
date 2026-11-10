@@ -1,7 +1,6 @@
 import { provideHttpClient, withFetch, withInterceptors } from '@angular/common/http';
 import { ApplicationConfig, provideBrowserGlobalErrorListeners } from '@angular/core';
 import { provideRouter, withComponentInputBinding } from '@angular/router';
-import { provideEchartsCore } from 'ngx-echarts';
 
 import { routes } from './app.routes';
 import { authInterceptor, errorInterceptor, refreshInterceptor } from './core/http/interceptors';
@@ -16,6 +15,5 @@ export const appConfig: ApplicationConfig = {
       withFetch(),
       withInterceptors([errorInterceptor, refreshInterceptor, authInterceptor]),
     ),
-    provideEchartsCore({ echarts: () => import('echarts') }),
   ],
 };

@@ -1,0 +1,244 @@
+<nav class="crumbs" aria-label="Breadcrumb">
+  <a routerLink="/app/overview">Overview</a>
+  @if (serviceId(); as sid) {
+    <span aria-hidden="true">/</span>
+    <a [routerLink]="['/app/services', sid]">{{ serviceName() ?? 'Service' }}</a>
+  }
+</nav>
+
+<app-page-head [title]="title()" [summary]="summaryLine()" />
+
+<div class="pb-toolbar">
+  <div class="ranges" role="group" aria-label="Time range">
+    @for (preset of presets; track preset.id) {
+      <button
+        mat-stroked-button
+        type="button"
+        [attr.aria-pressed]="isPreset(preset.id)"
+        [class.on]="isPreset(preset.id)"
+        (click)="selectPreset(preset.id)"
+      >
+        {{ preset.label }}
+      </button>
+    }
+    <button
+      mat-stroked-button
+      type="button"
+      [attr.aria-pressed]="store.range().kind === 'custom'"
+      [attr.aria-expanded]="customOpen()"
+      [class.on]="store.range().kind === 'custom'"
+      (click)="openCustom()"
+    >
+      Custom range
+    </button>
+  </div>
+  <button mat-button type="button" (click)="store.refresh()">Refresh</button>
+  @if (stepLabel()) {
+    <p class="pb-note step">
+      {{ stepLabel() }} per point{{ loadedAtLabel() ? ', loaded at ' + loadedAtLabel() : '' }}
+    </p>
+  }
+</div>
+
+@if (customOpen()) {
+  <form class="pb-toolbar custom" (submit)="$event.preventDefault(); applyCustom()">
+    <label class="pb-field">
+      <span>From</span>
+      <input
+        class="pb-input"
+        type="datetime-local"
+        [value]="customFrom()"
+        (input)="customFrom.set($any($event.target).value)"
+      />
+    </label>
+    <label class="pb-field">
+      <span>To</span>
+      <input
+        class="pb-input"
+        type="datetime-local"
+        [value]="customTo()"
+        (input)="customTo.set($any($event.target).value)"
+      />
+    </label>
+    <button mat-flat-button type="submit">Apply</button>
+    @if (customError(); as error) {
+      <p class="pb-note error" role="alert">{{ error }}</p>
+    }
+  </form>
+}
+
+@switch (store.series().status) {
+  @case ('error') {
+    @if (notFound()) {
+      <app-empty-state
+        heading="This metric does not exist"
+        body="It may have been removed, or it belongs to another workspace."
+      >
+        <a routerLink="/app/overview">Back to overview</a>
+      </app-empty-state>
+    } @else if (store.series().problem; as problem) {
+      <app-load-error
+        heading="Could not load the values"
+        [problem]="problem"
+        (retry)="store.refresh()"
+      />
+    }
+  }
+  @case ('loaded') {
+    @if (store.series().points.length === 0) {
+      <app-empty-state
+        heading="No values in this range"
+        body="This metric received nothing between these times. Pick a wider range, or send values for it."
+      />
+    } @else {
+      @if (store.window(); as window) {
+        <section class="pb-panel chart" aria-label="Time series">
+          <app-metric-chart
+            [points]="store.series().points"
+            [anomalies]="store.anomalies().items"
+            [fromMs]="window.fromMs"
+            [toMs]="window.toMs"
+            [stepSeconds]="window.stepSeconds"
+            [name]="title()"
+            [unit]="unit()"
+            [aggregation]="aggregation()"
+          />
+          <ul class="key" aria-label="Anomaly marks">
+            <li>
+              <svg viewBox="0 0 14 14" aria-hidden="true"><circle cx="7" cy="7" r="5" /></svg>
+              Low
+            </li>
+            <li>
+              <svg viewBox="0 0 14 14" aria-hidden="true">
+                <path d="M7 1.5L12.5 7 7 12.5 1.5 7z" />
+              </svg>
+              Medium
+            </li>
+            <li>
+              <svg viewBox="0 0 14 14" aria-hidden="true"><path d="M7 1.5l6 11H1z" /></svg>
+              High
+            </li>
+          </ul>
+        </section>
+      }
+
+      <section class="summary" aria-labelledby="summary-title">
+        <h2 id="summary-title" class="section-title">Summary</h2>
+        <dl class="stats pb-figures">
+          <div>
+            <dt>Minimum</dt>
+            <dd>{{ stats().min === null ? 'none' : value(stats().min) }}</dd>
+          </div>
+          <div>
+            <dt>Maximum</dt>
+            <dd>{{ stats().max === null ? 'none' : value(stats().max) }}</dd>
+          </div>
+          <div>
+            <dt>Latest</dt>
+            <dd>
+              {{ stats().last === null ? 'none' : value(stats().last) }}
+              @if (stats().lastAt; as at) {
+                <span class="at">at {{ exact(at) }}</span>
+              }
+            </dd>
+          </div>
+          <div>
+            <dt>Points</dt>
+            <dd>{{ stats().count }}</dd>
+          </div>
+        </dl>
+        <button
+          mat-stroked-button
+          type="button"
+          [attr.aria-expanded]="showTable()"
+          aria-controls="values-table"
+          (click)="showTable.set(!showTable())"
+        >
+          {{ showTable() ? 'Hide data table' : 'Show data table' }}
+        </button>
+        @if (showTable()) {
+          <div
+            id="values-table"
+            class="table-wrap"
+            tabindex="0"
+            role="region"
+            aria-label="Values table"
+          >
+            <table>
+              <caption class="pb-visually-hidden">
+                {{
+                  title()
+                }}
+                values by time
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">Time</th>
+                  <th scope="col" class="num">
+                    {{ unit() ? 'Value (' + unit() + ')' : 'Value' }}
+                  </th>
+                  <th scope="col" class="num">Samples</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (point of store.series().points; track point.t) {
+                  <tr>
+                    <td>{{ exact(point.t) }}</td>
+                    <td class="num">{{ value(point.value) }}</td>
+                    <td class="num">{{ point.count }}</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        }
+      </section>
+    }
+  }
+  @default {
+    <app-skeleton-rows label="Loading values" />
+  }
+}
+
+@if (!notFound() && store.series().status !== 'error') {
+  <section class="anomalies" aria-labelledby="anomalies-title">
+    <h2 id="anomalies-title" class="section-title">Anomalies in this range</h2>
+    @if (!actions.canAcknowledge()) {
+      <p id="ack-note" class="pb-note">Only owners and admins can acknowledge anomalies.</p>
+    }
+    @switch (store.anomalies().status) {
+      @case ('error') {
+        @if (store.anomalies().problem; as problem) {
+          <app-load-error
+            heading="Could not load anomalies"
+            [problem]="problem"
+            (retry)="store.refresh()"
+          />
+        }
+      }
+      @case ('loaded') {
+        @if (store.anomalies().items.length === 0) {
+          <p class="pb-note">No anomalies in this range.</p>
+        } @else {
+          @if (truncated()) {
+            <p class="pb-note">
+              Showing the newest {{ anomalyLimit }} of {{ store.anomalies().totalItems }}.
+            </p>
+          }
+          <div role="list" class="pb-list" aria-label="Anomalies of this metric">
+            @for (anomaly of store.anomalies().items; track anomaly.id) {
+              <app-anomaly-row
+                [anomaly]="anomaly"
+                [metricName]="metricName()"
+                [linkToMetric]="false"
+              />
+            }
+          </div>
+        }
+      }
+      @default {
+        <app-skeleton-rows label="Loading anomalies" />
+      }
+    }
+  </section>
+}
