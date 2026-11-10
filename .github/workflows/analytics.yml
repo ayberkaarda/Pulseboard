@@ -1,0 +1,41 @@
+name: analytics
+
+on:
+  push:
+    paths:
+      - "services/analytics/**"
+      - "contracts/**"
+      - ".github/workflows/analytics.yml"
+  pull_request:
+    paths:
+      - "services/analytics/**"
+      - "contracts/**"
+      - ".github/workflows/analytics.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/analytics
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Install dependencies
+        run: uv sync --locked --all-extras --dev
+      - name: Ruff lint
+        run: uv run ruff check .
+      - name: Ruff format check
+        run: uv run ruff format --check .
+      - name: Mypy
+        run: uv run mypy .
+      - name: Pytest
+        run: uv run pytest
