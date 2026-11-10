@@ -52,6 +52,12 @@ services:
       ANALYTICS_BASE_URL: http://analytics:8000
       INTERNAL_SHARED_SECRET: ${INTERNAL_SHARED_SECRET:?INTERNAL_SHARED_SECRET must be non-empty}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be non-empty}
+      # Optional live stream and internal endpoint limits (defaults shown).
+      ANOMALY_STREAM_MAX_PER_TENANT: ${ANOMALY_STREAM_MAX_PER_TENANT:-5}
+      ANOMALY_STREAM_MAX_TOTAL: ${ANOMALY_STREAM_MAX_TOTAL:-500}
+      ANOMALY_STREAM_HEARTBEAT: ${ANOMALY_STREAM_HEARTBEAT:-30s}
+      ANOMALY_STREAM_MAX_LIFETIME: ${ANOMALY_STREAM_MAX_LIFETIME:-30m}
+      INTERNAL_MAX_BODY_BYTES: ${INTERNAL_MAX_BODY_BYTES:-524288}
     depends_on:
       postgres:
         condition: service_healthy
@@ -75,6 +81,11 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be non-empty}@redis:6379/0
       API_CORE_BASE_URL: http://api-core:8080
       INTERNAL_SHARED_SECRET: ${INTERNAL_SHARED_SECRET:?INTERNAL_SHARED_SECRET must be non-empty}
+      # The scheduler runs inside the process, so this service must stay a single replica.
+      SCHEDULER_ENABLED: ${SCHEDULER_ENABLED:-true}
+      SCORE_INTERVAL_SECONDS: ${SCORE_INTERVAL_SECONDS:-60}
+    deploy:
+      replicas: 1
     expose:
       - "8000"
     depends_on:
@@ -82,8 +93,10 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      api-core:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health', timeout=3).status == 200 else 1)"]
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).status == 200 else 1)"]
       interval: 10s
       timeout: 5s
       retries: 20
