@@ -34,6 +34,7 @@ lint:
 	cd apps/web && npm run lint
 
 # Regenerates contracts/*.openapi.yaml from the running code.
-# api-core export is added in Phase 2.
+# Both documents are checked in; CI fails when they drift from the code.
 openapi-gen:
+	cd apps/api-core && ./gradlew generateOpenApiDocs --no-daemon
 	cd services/analytics && uv run python -m pulseboard_analytics.openapi_export ../../contracts/analytics.openapi.yaml

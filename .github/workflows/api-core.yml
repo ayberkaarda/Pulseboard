@@ -34,3 +34,6 @@ jobs:
         run: ./gradlew checkstyleMain checkstyleTest --no-daemon
       - name: Test
         run: ./gradlew test --no-daemon
+      - name: OpenAPI contract drift check
+        # Uses Testcontainers, which needs the Docker daemon available on ubuntu-latest runners.
+        run: ./gradlew verifyOpenApiDocs --no-daemon

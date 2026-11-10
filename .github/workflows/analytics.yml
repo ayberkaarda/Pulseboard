@@ -39,3 +39,7 @@ jobs:
         run: uv run mypy .
       - name: Pytest
         run: uv run pytest
+      - name: OpenAPI contract drift check
+        run: |
+          uv run python -m pulseboard_analytics.openapi_export "$RUNNER_TEMP/analytics.openapi.yaml"
+          diff -u ../../contracts/analytics.openapi.yaml "$RUNNER_TEMP/analytics.openapi.yaml"
