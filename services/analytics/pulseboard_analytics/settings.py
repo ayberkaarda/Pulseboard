@@ -58,6 +58,7 @@ class Settings:
     max_request_bytes: int = 4096
     score_deadline_seconds: int = 50
     forest_cache_max: int = 256
+    # Startup check of the database role privileges. False is for tests only.
     verify_db_roles: bool = True
     metric_lock_timeout_seconds: int = 10
     lease_margin_seconds: int = 5

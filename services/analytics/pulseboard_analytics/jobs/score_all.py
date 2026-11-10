@@ -1,4 +1,14 @@
-"""Periodic scoring of every active metric, guarded by a Redis lock."""
+"""Periodic scoring of every active metric, guarded by a Redis lock.
+
+The lock is a lease that is not renewed, and it bounds work; it does not make it exclusive.
+Each metric gets a time budget that ends with the lease (database statement and lock timeouts,
+a check before the state write and the insert, a total time budget for notification), and no
+metric starts with less than the safety margin left. Two things can still overlap with the next
+holder of the lock: an uninterruptible training run and a statement that is already executing,
+for at most the margin plus the statement timeout. Single-writer behaviour is therefore
+guaranteed by idempotent stores (decision D1: the anomaly unique key with ``ON CONFLICT DO
+NOTHING``, and compare-and-set model state), not by the lease alone.
+"""
 
 import time
 from collections.abc import Callable

@@ -27,6 +27,7 @@ from pulseboard_analytics.repositories.models import MetricRef, StoredAnomaly
 from pulseboard_analytics.repositories.reader import MetricReader
 from pulseboard_analytics.repositories.timeouts import apply_budget
 from pulseboard_analytics.repositories.writer import AnomalyWriter, DetectorStateStore
+from pulseboard_analytics.settings import Settings, SettingsError
 from tests.conftest import NOW
 from tests.support.fake_server import fake_api_core
 from tests.test_scoring_limits import (
@@ -500,3 +501,31 @@ def test_one_metric_with_more_results_than_a_batch_is_split_into_batches(
     assert summary.inserted == summary.notified == 1200
     ids = [a.id for call in notifier.calls for a in call]
     assert len(set(ids)) == 1200
+
+
+# --- settings ------------------------------------------------------------------------------------
+
+
+def _env(**extra: str) -> dict[str, str]:
+    return {
+        "DATABASE_READER_URL": "postgresql+psycopg://r@h/db",
+        "DATABASE_WRITER_URL": "postgresql+psycopg://w@h/db",
+        "REDIS_URL": "redis://h:6379/0",
+        "API_CORE_BASE_URL": "http://core",
+        "INTERNAL_SHARED_SECRET": "k" * 40,
+        **extra,
+    }
+
+
+def test_the_lease_and_lock_settings_have_safe_defaults() -> None:
+    settings = Settings.from_env(_env())
+
+    assert settings.metric_lock_timeout_seconds == 10
+    assert settings.lease_margin_seconds == 5
+    assert settings.verify_db_roles is True
+
+
+def test_the_lease_margin_must_fit_into_the_lock_ttl() -> None:
+    with pytest.raises(SettingsError, match="SCORE_LEASE_MARGIN_SECONDS"):
+        Settings.from_env(_env(SCORE_LEASE_MARGIN_SECONDS="55", SCORE_LOCK_TTL_MS="55000"))
+    assert Settings.from_env(_env(METRIC_LOCK_TIMEOUT_SECONDS="3")).metric_lock_timeout_seconds == 3

@@ -29,6 +29,11 @@ The OpenAPI document is committed as `contracts/analytics.openapi.yaml`; regener
 | `INTERNAL_SHARED_SECRET` | HMAC key, at least 32 characters, otherwise the service refuses to start |
 | `SCHEDULER_ENABLED` | `true` (default) or `false` |
 | `SCORE_INTERVAL_SECONDS`, `SCORE_LOCK_TTL_MS` | default `60` and `55000` |
+| `SCORE_DEADLINE_SECONDS` | default `50`; a run starts no new metric after this, must be below the lock TTL |
+| `SCORE_LEASE_MARGIN_SECONDS` | default `5`; no new metric starts with less lease than this left |
+| `METRIC_LOCK_TIMEOUT_SECONDS` | default `10`; how long a caller waits for another caller training the same metric |
+| `FOREST_CACHE_MAX` | default `256` fitted forests kept in memory |
+| `VERIFY_DB_ROLES` | default `true`: the startup check of the reader and writer privileges; `false` is for tests only |
 
 ## Development
 
