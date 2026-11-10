@@ -25,7 +25,8 @@ Z_THRESHOLD = 3.0
 Z_MEDIUM = 4.0
 Z_HIGH = 5.0
 SCORE_FULL_AT = 6.0
-# A rolling std below this relative tolerance is floating point noise on a flat baseline.
+# A rolling std below this fraction of the baseline magnitude is floating point noise on a flat
+# baseline. The tolerance is purely relative, so the result does not depend on the unit.
 _FLAT_TOLERANCE = 1e-9
 
 
@@ -57,7 +58,7 @@ def detect(frame: pd.DataFrame) -> list[DetectorResult]:
     mean = baseline.mean()
     std = baseline.std()
 
-    flat = std <= _FLAT_TOLERANCE * np.maximum(1.0, mean.abs())
+    flat = std <= _FLAT_TOLERANCE * mean.abs()
     z_scores = (values - mean) / std.where(~flat)
 
     results: list[DetectorResult] = []

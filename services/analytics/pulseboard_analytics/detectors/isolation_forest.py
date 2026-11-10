@@ -10,6 +10,11 @@ tertiles (LOW, MEDIUM, HIGH).
 Input: see :mod:`pulseboard_analytics.detectors.base`. Series shorter than ``MIN_POINTS`` or with
 a flat value column cannot be trained on and produce no anomalies.
 
+Features are standardised before fitting and scoring (median and MAD, falling back to the
+standard deviation; the parameters are stored with the forest). scikit-learn converts its input
+to float32, which would overflow for the accepted magnitudes up to 1e100 and make the result
+depend on the unit of the metric. Standardised features are clipped to +/-``_CLIP``.
+
 The functions are deterministic: the forest uses ``random_state=42``.
 """
 
@@ -38,7 +43,14 @@ MEDIUM_FROM = SCORE_THRESHOLD + (1.0 - SCORE_THRESHOLD) / 3.0
 HIGH_FROM = SCORE_THRESHOLD + 2.0 * (1.0 - SCORE_THRESHOLD) / 3.0
 RETRAIN_INTERVAL = timedelta(hours=6)
 RETRAIN_GROWTH = 1.2
+# A series is flat when its standard deviation is below this fraction of its own magnitude.
 _FLAT_TOLERANCE = 1e-9
+_CLIP = 1e6
+_MAD_TO_STD = 1.4826
+
+
+class StandardizationError(ValueError):
+    """Raised when the features cannot be brought to a finite, comparable scale."""
 
 
 @dataclass(frozen=True)
@@ -56,6 +68,8 @@ class TrainedForest:
     """A fitted forest with the decision function range used for normalisation."""
 
     model: IsolationForest
+    center: np.ndarray
+    scale: np.ndarray
     decision_min: float
     decision_max: float
     state: ForestState
@@ -91,8 +105,35 @@ def is_trainable(frame: pd.DataFrame) -> bool:
     """Whether ``frame`` has enough varying data to fit a forest."""
     if len(frame) < MIN_POINTS:
         return False
-    values = frame["value"]
-    return bool(values.std() > _FLAT_TOLERANCE * max(1.0, abs(float(values.mean()))))
+    return not is_flat(frame["value"])
+
+
+def is_flat(values: pd.Series) -> bool:
+    """Whether ``values`` are constant up to rounding noise relative to their own magnitude."""
+    std = float(values.std())
+    if not np.isfinite(std):
+        return False
+    return std <= _FLAT_TOLERANCE * abs(float(values.mean()))
+
+
+def _standardization(features: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    center = np.median(features, axis=0)
+    scale = _MAD_TO_STD * np.median(np.abs(features - center), axis=0)
+    fallback = features.std(axis=0)
+    scale = np.where(scale > 0.0, scale, fallback)
+    # A column that is still constant keeps scale 1 and becomes all zeros after centering.
+    scale = np.where(scale > 0.0, scale, 1.0)
+    if not (np.isfinite(center).all() and np.isfinite(scale).all()):
+        raise StandardizationError("feature scale is not finite")
+    return center, scale
+
+
+def _transform(features: pd.DataFrame, center: np.ndarray, scale: np.ndarray) -> np.ndarray:
+    with np.errstate(over="ignore", invalid="ignore"):
+        scaled = (features.to_numpy() - center) / scale
+    if np.isnan(scaled).any():
+        raise StandardizationError("standardised features contain NaN")
+    return np.asarray(np.clip(scaled, -_CLIP, _CLIP), dtype=np.float64)
 
 
 def train(frame: pd.DataFrame, *, trained_at: datetime, version: int) -> TrainedForest:
@@ -103,10 +144,15 @@ def train(frame: pd.DataFrame, *, trained_at: datetime, version: int) -> Trained
     model = IsolationForest(
         n_estimators=N_ESTIMATORS, contamination=CONTAMINATION, random_state=RANDOM_STATE
     )
-    model.fit(build_features(frame).to_numpy())
-    decision = model.decision_function(build_features(frame).to_numpy())
+    features = build_features(frame)
+    center, scale = _standardization(features.to_numpy())
+    matrix = _transform(features, center, scale)
+    model.fit(matrix)
+    decision = model.decision_function(matrix)
     return TrainedForest(
         model=model,
+        center=center,
+        scale=scale,
         decision_min=float(decision.min()),
         decision_max=float(decision.max()),
         state=ForestState(
@@ -120,7 +166,8 @@ def train(frame: pd.DataFrame, *, trained_at: datetime, version: int) -> Trained
 
 def anomaly_scores(frame: pd.DataFrame, forest: TrainedForest) -> np.ndarray:
     """Return the anomaly score in ``[0, 1]`` of every row of ``frame``."""
-    decision = forest.model.decision_function(build_features(frame).to_numpy())
+    matrix = _transform(build_features(frame), forest.center, forest.scale)
+    decision = forest.model.decision_function(matrix)
     span = forest.decision_max - forest.decision_min
     if span <= 0.0:
         return np.zeros(len(frame))
