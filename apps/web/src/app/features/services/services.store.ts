@@ -40,6 +40,9 @@ function problemOf(error: unknown): ApiProblem {
   return isApiError(error) ? error.problem : UNKNOWN_PROBLEM;
 }
 
+/** A service whose metric definitions failed to load is asked again no sooner than this. */
+export const METRICS_RETRY_MS = 10_000;
+
 /**
  * Services of the tenant and the metric definitions of each service.
  * Each load is a switchMap: starting a load cancels the previous one, so a slow response for a
@@ -55,6 +58,8 @@ export const ServicesStore = signalStore(
     let epoch = 0;
     // Services whose metrics ensureMetrics has asked for and not yet received.
     const requested = new Set<string>();
+    /** When the last metadata request of a service failed, epoch ms. */
+    const failedAt = new Map<string, number>();
 
     return {
       // eslint-disable-next-line @typescript-eslint/no-invalid-void-type
@@ -182,9 +187,17 @@ export const ServicesStore = signalStore(
        */
       ensureMetrics(serviceIds: readonly string[]): void {
         const startedIn = epoch;
-        const wanted = [...new Set(serviceIds)].filter(
-          (id) => !requested.has(id) && (store.metrics()[id] ?? IDLE).status === 'idle',
-        );
+        const wanted = [...new Set(serviceIds)].filter((id) => {
+          if (requested.has(id)) {
+            return false;
+          }
+          const status = (store.metrics()[id] ?? IDLE).status;
+          // A failed load is tried again on the next refresh, but not in a tight loop.
+          return (
+            status === 'idle' ||
+            (status === 'error' && Date.now() - (failedAt.get(id) ?? 0) >= METRICS_RETRY_MS)
+          );
+        });
         for (const id of wanted) {
           requested.add(id);
         }
@@ -217,6 +230,11 @@ export const ServicesStore = signalStore(
           )
           .subscribe(({ serviceId, metrics }) => {
             requested.delete(serviceId);
+            if (metrics.status === 'error') {
+              failedAt.set(serviceId, Date.now());
+            } else {
+              failedAt.delete(serviceId);
+            }
             if (startedIn === epoch) {
               patchState(store, (state) => ({
                 metrics: { ...state.metrics, [serviceId]: metrics },
@@ -228,6 +246,7 @@ export const ServicesStore = signalStore(
       reset(): void {
         epoch += 1;
         requested.clear();
+        failedAt.clear();
         patchState(store, INITIAL);
       },
     };

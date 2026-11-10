@@ -5,7 +5,7 @@ import { TestBed } from '@angular/core/testing';
 import { errorInterceptor } from '../../core/http/interceptors';
 import { SessionLifecycle } from '../../core/session/session-lifecycle';
 import { settle } from '../../core/testing/auth-testing';
-import { ServicesStore } from './services.store';
+import { METRICS_RETRY_MS, ServicesStore } from './services.store';
 
 const SERVICE_A = {
   id: '11111111-1111-4111-8111-111111111111',
@@ -130,6 +130,35 @@ describe('ServicesStore', () => {
     second.flush([SERVICE_B]);
 
     expect(store.services().items.map((service) => service.name)).toEqual(['search']);
+  });
+
+  describe('ensureMetrics', () => {
+    const metricsUrl = (id: string) => `/api/v1/services/${id}/metrics`;
+
+    it('asks again after a failure, but not before the retry delay and never twice at once', () => {
+      jest.useFakeTimers({ now: 1_000_000, doNotFake: ['setTimeout', 'queueMicrotask'] });
+      try {
+        const { store, http } = setup();
+        store.ensureMetrics(['s-1']);
+        http.expectOne(metricsUrl('s-1')).flush(null, { status: 503, statusText: 'Unavailable' });
+        expect(store.metrics()['s-1'].status).toBe('error');
+
+        store.ensureMetrics(['s-1']);
+        http.expectNone(metricsUrl('s-1'));
+
+        jest.setSystemTime(1_000_000 + METRICS_RETRY_MS);
+        store.ensureMetrics(['s-1']);
+        store.ensureMetrics(['s-1']);
+        const retry = http.expectOne(metricsUrl('s-1'));
+        retry.flush([]);
+        expect(store.metrics()['s-1'].status).toBe('loaded');
+
+        store.ensureMetrics(['s-1']);
+        http.expectNone(metricsUrl('s-1'));
+      } finally {
+        jest.useRealTimers();
+      }
+    });
   });
 
   it('forgets everything on logout and ignores answers that were still on their way', async () => {
