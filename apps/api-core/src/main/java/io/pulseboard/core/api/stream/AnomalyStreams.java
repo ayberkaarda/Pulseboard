@@ -55,6 +55,7 @@ public class AnomalyStreams {
     public SseEmitter open(TenantId tenantId, Instant tokenExpiry) {
         StreamPolicy policy = admission.policy();
         Permit permit = admission.acquire(tenantId);
+        Connection connection = null;
         try {
             Duration lifetime = policy.maxLifetime();
             if (tokenExpiry != null) {
@@ -62,15 +63,20 @@ public class AnomalyStreams {
                 lifetime = untilExpiry.compareTo(lifetime) < 0 ? untilExpiry : lifetime;
             }
             SseEmitter emitter = new SseEmitter(Math.max(1, lifetime.toMillis()));
-            Connection connection = new Connection(emitter, permit, policy.heartbeatInterval());
-            connection.attach(eventSource.subscribe(tenantId, connection::offer));
-            emitter.onCompletion(connection::close);
-            emitter.onTimeout(connection::close);
-            emitter.onError(error -> connection.close());
-            connection.start();
+            Connection opened = new Connection(emitter, permit, policy.heartbeatInterval());
+            connection = opened;
+            opened.attach(eventSource.subscribe(tenantId, opened::offer));
+            emitter.onCompletion(opened::close);
+            emitter.onTimeout(opened::close);
+            emitter.onError(error -> opened.close());
+            opened.start();
             return emitter;
         } catch (RuntimeException ex) {
-            permit.close();
+            if (connection != null) {
+                connection.close();
+            } else {
+                permit.close();
+            }
             throw ex;
         }
     }
@@ -82,6 +88,7 @@ public class AnomalyStreams {
         private final long heartbeatNanos;
         private final BlockingQueue<String> queue = new LinkedBlockingQueue<>(QUEUE_CAPACITY);
         private final AtomicBoolean closed = new AtomicBoolean();
+        private final AtomicBoolean subscriptionClosed = new AtomicBoolean();
         private volatile AnomalyEventSource.Subscription subscription;
         private volatile Thread writer;
 
@@ -91,11 +98,29 @@ public class AnomalyStreams {
             this.heartbeatNanos = heartbeat.toNanos();
         }
 
+        /**
+         * Stores the subscription. The connection may have been closed while the subscription was being set up
+         * (a burst that overflowed the queue); that close found nothing to release, so it is released here. Either
+         * this method or {@link #close()} sees the other's write, and the flag makes the release happen once.
+         */
         private void attach(AnomalyEventSource.Subscription newSubscription) {
             this.subscription = newSubscription;
+            if (closed.get()) {
+                closeSubscription();
+            }
+        }
+
+        private void closeSubscription() {
+            AnomalyEventSource.Subscription current = subscription;
+            if (current != null && subscriptionClosed.compareAndSet(false, true)) {
+                current.close();
+            }
         }
 
         private void start() {
+            if (closed.get()) {
+                return;
+            }
             writer = Thread.ofVirtual().name("anomaly-stream").start(this::writeLoop);
         }
 
@@ -144,10 +169,7 @@ public class AnomalyStreams {
                 return;
             }
             try {
-                AnomalyEventSource.Subscription current = subscription;
-                if (current != null) {
-                    current.close();
-                }
+                closeSubscription();
             } finally {
                 permit.close();
                 Thread current = writer;
