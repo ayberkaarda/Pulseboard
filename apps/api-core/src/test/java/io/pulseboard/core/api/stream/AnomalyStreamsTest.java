@@ -30,6 +30,7 @@ class AnomalyStreamsTest {
         private final AtomicInteger active = new AtomicInteger();
         private final AtomicInteger closeCalls = new AtomicInteger();
         private final AtomicInteger subscribed = new AtomicInteger();
+        private final java.util.Set<Consumer<String>> listeners = java.util.concurrent.ConcurrentHashMap.newKeySet();
         private volatile Consumer<Consumer<String>> beforeReturn = listener -> {
         };
 
@@ -37,12 +38,21 @@ class AnomalyStreamsTest {
         public Subscription subscribe(TenantId tenantId, Consumer<String> listener) {
             subscribed.incrementAndGet();
             active.incrementAndGet();
+            listeners.add(listener);
             AtomicInteger own = new AtomicInteger();
-            beforeReturn.accept(listener);
+            try {
+                beforeReturn.accept(listener);
+            } catch (RuntimeException ex) {
+                // A subscribe that fails partway undoes its own registration, as the Redis registry does.
+                listeners.remove(listener);
+                active.decrementAndGet();
+                throw ex;
+            }
             return () -> {
                 closeCalls.incrementAndGet();
                 if (own.incrementAndGet() == 1) {
                     active.decrementAndGet();
+                    listeners.remove(listener);
                 }
             };
         }
@@ -168,6 +178,22 @@ class AnomalyStreamsTest {
                 .isInstanceOf(IllegalStateException.class);
 
         assertThat(source.closeCalls).hasValue(0);
+        assertThat(admission.openStreams()).isZero();
+    }
+
+    @Test
+    void aSubscribeThatRegistersAListenerAndThenFailsLeavesNoListenerBehind() {
+        source.beforeReturn = listener -> {
+            assertThat(source.listeners).as("registered before the failure").contains(listener);
+            throw new IllegalStateException("bus down after registering");
+        };
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> streams.open(TENANT, null))
+                .isInstanceOf(IllegalStateException.class);
+
+        assertThat(source.subscribed).hasValue(1);
+        assertThat(source.listeners).isEmpty();
+        assertThat(source.active).hasValue(0);
         assertThat(admission.openStreams()).isZero();
     }
 }

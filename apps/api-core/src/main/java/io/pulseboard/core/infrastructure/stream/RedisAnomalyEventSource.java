@@ -57,6 +57,7 @@ public class RedisAnomalyEventSource implements AnomalyEventSource {
                 try {
                     container.addMessageListener(channel.messageListener, channel.topic);
                 } catch (RuntimeException ex) {
+                    channel.listeners.remove(listener);
                     throw new DependencyUnavailableException("The message bus is unavailable; cannot subscribe", ex);
                 }
                 channels.put(tenantId, channel);
