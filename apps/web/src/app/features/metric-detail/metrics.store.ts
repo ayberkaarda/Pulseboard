@@ -2,7 +2,7 @@ import { inject } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { patchState, signalStore, withHooks, withMethods, withState } from '@ngrx/signals';
 import { rxMethod } from '@ngrx/signals/rxjs-interop';
-import { catchError, map, merge, of, pipe, switchMap, tap } from 'rxjs';
+import { catchError, map, of, pipe, switchMap, tap } from 'rxjs';
 
 import { ApiClient } from '../../api/api-client';
 import {
@@ -17,7 +17,14 @@ import { ApiProblem, isApiError } from '../../api/problem';
 import { quietContext } from '../../core/http/api-request';
 import { SessionLifecycle } from '../../core/session/session-lifecycle';
 import { Clock } from '../../core/time/clock.service';
-import { AnomalyBus, mergeAnomaly } from '../anomalies/anomaly-bus';
+import {
+  AckLedger,
+  AnomalyBus,
+  AnomalyChangeKind,
+  ChangeBuffer,
+  mergeAnomaly,
+} from '../anomalies/anomaly-bus';
+import { AnomalyStreamService } from '../anomalies/anomaly-stream.service';
 import { RangeSelection, RangeWindow, isoDuration, resolveWindow } from './range';
 
 type Status = 'idle' | 'loading' | 'loaded' | 'error';
@@ -99,27 +106,27 @@ export const MetricsStore = signalStore(
     const clock = inject(Clock);
     let epoch = 0;
 
-    const fetchWindow = rxMethod<Request>(
+    const ledger = new AckLedger();
+    const arrivals = new ChangeBuffer();
+    // A reconnect happened while the anomalies were loading: read them once more when they land.
+    let resyncQueued = false;
+
+    const fetchPoints = rxMethod<Request>(
       pipe(
         tap(() =>
           patchState(store, (state) => ({
             series: { ...state.series, status: 'loading' as const, problem: null },
-            anomalies: { ...state.anomalies, status: 'loading' as const, problem: null },
           })),
         ),
-        switchMap(({ metricId, window, epoch: startedIn }) => {
-          const from = new Date(window.fromMs).toISOString();
-          const to = new Date(window.toMs).toISOString();
-          const apply = (patch: Partial<MetricsState>): void => {
-            if (startedIn === epoch) {
-              patchState(store, patch);
-            }
-          };
-
-          const points$ = api
+        switchMap(({ metricId, window, epoch: startedIn }) =>
+          api
             .get('/api/v1/metrics/{metricId}/points', {
               path: { metricId },
-              query: { from, to, step: isoDuration(window.stepSeconds) },
+              query: {
+                from: new Date(window.fromMs).toISOString(),
+                to: new Date(window.toMs).toISOString(),
+                step: isoDuration(window.stepSeconds),
+              },
               context: quietContext(),
             })
             .pipe(
@@ -140,19 +147,45 @@ export const MetricsStore = signalStore(
                   series: { ...IDLE_SERIES, status: 'error', problem: problemOf(error) },
                 }),
               ),
-              tap(apply),
-            );
+              tap((patch) => {
+                if (startedIn === epoch) {
+                  patchState(store, patch);
+                }
+              }),
+            ),
+        ),
+      ),
+    );
 
-          const anomalies$ = api
+    const fetchAnomalies = rxMethod<Request & { openEnded: boolean }>(
+      pipe(
+        tap(() => {
+          arrivals.begin();
+          patchState(store, (state) => ({
+            anomalies: { ...state.anomalies, status: 'loading' as const, problem: null },
+          }));
+        }),
+        switchMap(({ metricId, window, openEnded, epoch: startedIn }) =>
+          api
             .get('/api/v1/anomalies', {
-              query: { metricId, from, to, size: ANOMALY_LIMIT },
+              query: {
+                metricId,
+                from: new Date(window.fromMs).toISOString(),
+                // A live preset has no end: what happens now belongs to it.
+                to: openEnded ? undefined : new Date(window.toMs).toISOString(),
+                size: ANOMALY_LIMIT,
+              },
               context: quietContext(),
             })
             .pipe(
               map((body): Partial<MetricsState> => ({
                 anomalies: {
                   status: 'loaded',
-                  items: body.items.map(toAnomaly).sort(compareAnomalies),
+                  // The snapshot can predate an acknowledgement made while it was in flight.
+                  items: body.items
+                    .map(toAnomaly)
+                    .map((item) => ledger.overlay(item))
+                    .sort(compareAnomalies),
                   totalItems: body.totalItems ?? 0,
                   problem: null,
                 },
@@ -162,13 +195,81 @@ export const MetricsStore = signalStore(
                   anomalies: { ...IDLE_ANOMALIES, status: 'error', problem: problemOf(error) },
                 }),
               ),
-              tap(apply),
-            );
-
-          return merge(points$, anomalies$);
-        }),
+              tap((patch) => {
+                if (startedIn !== epoch) {
+                  return;
+                }
+                patchState(store, patch);
+                const arrived = arrivals.end();
+                if (patch.anomalies?.status === 'loaded') {
+                  for (const change of arrived) {
+                    apply(change.anomaly, change.kind);
+                  }
+                }
+                if (resyncQueued) {
+                  resyncQueued = false;
+                  reloadAnomalies();
+                }
+              }),
+            ),
+        ),
       ),
     );
+
+    function reloadAnomalies(): void {
+      const metricId = store.metricId();
+      const window = store.window();
+      if (metricId !== null && window !== null) {
+        fetchAnomalies({ metricId, window, epoch, openEnded: store.range().kind === 'preset' });
+      }
+    }
+
+    /** Does a live event belong to the window on screen? A live preset has no upper bound. */
+    function inWindow(anomaly: Anomaly): boolean {
+      const window = store.window();
+      return (
+        window !== null &&
+        anomaly.startMs >= window.fromMs &&
+        (store.range().kind === 'preset' || anomaly.startMs < window.toMs)
+      );
+    }
+
+    /** Applies a change from the bus: acknowledgements, live events of this metric. */
+    function apply(change: Anomaly, kind: AnomalyChangeKind): void {
+      if (store.metricId() === null) {
+        return;
+      }
+      arrivals.push({ anomaly: change, kind });
+      const anomaly = ledger.observe({ anomaly: change, kind });
+      const { items, totalItems, status } = store.anomalies();
+      const known = items.find((item) => item.id === anomaly.id);
+      if (known !== undefined) {
+        const merged = mergeAnomaly(known, { anomaly, kind });
+        patchState(store, {
+          anomalies: {
+            ...store.anomalies(),
+            items: items.map((item) => (item.id === merged.id ? merged : item)),
+          },
+        });
+        return;
+      }
+      // While the list is loading the change is only buffered; it is applied after the snapshot.
+      if (
+        kind !== 'event' ||
+        status !== 'loaded' ||
+        anomaly.metricId !== store.metricId() ||
+        !inWindow(anomaly)
+      ) {
+        return;
+      }
+      patchState(store, {
+        anomalies: {
+          ...store.anomalies(),
+          items: [...items, anomaly].sort(compareAnomalies).slice(0, ANOMALY_LIMIT),
+          totalItems: totalItems + 1,
+        },
+      });
+    }
 
     function run(metricId: string, range: RangeSelection): void {
       const window = resolveWindow(range, clock.exactNow());
@@ -179,7 +280,8 @@ export const MetricsStore = signalStore(
         patchState(store, { series: IDLE_SERIES, anomalies: IDLE_ANOMALIES });
         return;
       }
-      fetchWindow({ metricId, window, epoch });
+      fetchPoints({ metricId, window, epoch });
+      fetchAnomalies({ metricId, window, epoch, openEnded: false });
     }
 
     return {
@@ -208,41 +310,25 @@ export const MetricsStore = signalStore(
         }
       },
 
-      /** Applies a change from the bus: acknowledgements, live events of this metric. */
-      apply(anomaly: Anomaly, kind: 'event' | 'update' | 'rollback'): void {
-        const { items, totalItems, status } = store.anomalies();
-        const window = store.window();
-        const known = items.find((item) => item.id === anomaly.id);
-        if (known !== undefined) {
-          const merged = mergeAnomaly(known, { anomaly, kind });
-          patchState(store, {
-            anomalies: {
-              ...store.anomalies(),
-              items: items.map((item) => (item.id === merged.id ? merged : item)),
-            },
-          });
-          return;
+      apply,
+
+      /**
+       * The live stream reconnected: events sent while it was down are not replayed, so the
+       * anomalies of the window on screen are read again.
+       */
+      resync(): void {
+        if (store.anomalies().status === 'loading') {
+          resyncQueued = true;
+        } else if (store.anomalies().status === 'loaded') {
+          reloadAnomalies();
         }
-        if (
-          kind !== 'event' ||
-          status !== 'loaded' ||
-          window === null ||
-          anomaly.metricId !== store.metricId() ||
-          anomaly.startMs < window.fromMs
-        ) {
-          return;
-        }
-        patchState(store, {
-          anomalies: {
-            ...store.anomalies(),
-            items: [...items, anomaly].sort(compareAnomalies).slice(0, ANOMALY_LIMIT),
-            totalItems: totalItems + 1,
-          },
-        });
       },
 
       reset(): void {
         epoch += 1;
+        ledger.clear();
+        arrivals.discard();
+        resyncQueued = false;
         patchState(store, INITIAL);
       },
     };
@@ -253,6 +339,9 @@ export const MetricsStore = signalStore(
       inject(AnomalyBus)
         .changes.pipe(takeUntilDestroyed())
         .subscribe(({ anomaly, kind }) => store.apply(anomaly, kind));
+      inject(AnomalyStreamService)
+        .resynced.pipe(takeUntilDestroyed())
+        .subscribe(() => store.resync());
     },
   }),
 );

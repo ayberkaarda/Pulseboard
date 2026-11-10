@@ -11,8 +11,10 @@ import { parseDurationSeconds } from '../../api/models';
 import { errorInterceptor } from '../../core/http/interceptors';
 import { SessionLifecycle } from '../../core/session/session-lifecycle';
 import { AnomalyBus } from '../anomalies/anomaly-bus';
-import { anomaly, rawAnomaly } from '../anomalies/anomaly-testing';
-import { MetricsStore } from './metrics.store';
+import { SessionStore } from '../../core/session/session.store';
+import { AnomalyStreamService, EVENT_SOURCE_FACTORY } from '../anomalies/anomaly-stream.service';
+import { SourceLog, anomaly, fakeSession, rawAnomaly } from '../anomalies/anomaly-testing';
+import { ANOMALY_LIMIT, MetricsStore } from './metrics.store';
 import { MAX_BUCKETS, bucketCount } from './range';
 
 const METRIC = '33333333-3333-4333-8333-333333333333';
@@ -249,6 +251,172 @@ describe('MetricsStore', () => {
     it('ignores a live event from before the window', () => {
       const { store, bus } = loaded();
       bus.publish(anomaly({ metricId: METRIC, windowStart: '2020-01-01T00:00:00Z' }), 'event');
+      expect(store.anomalies().items).toHaveLength(1);
+    });
+  });
+});
+
+describe('MetricsStore against live state', () => {
+  const HOUR = 3_600_000;
+  const ACK = { acknowledgedAt: '2026-05-01T12:30:00Z', acknowledgedBy: 'u-1' };
+
+  function loadedWith() {
+    const context = setup();
+    context.store.open(METRIC);
+    const points = http_points(context.http);
+    return { ...context, points, anomalies: http_anomalies(context.http) };
+  }
+
+  function http_points(http: HttpTestingController) {
+    return http
+      .match((req) => req.url === `/api/v1/metrics/${METRIC}/points`)
+      .at(-1) as TestRequest;
+  }
+  function http_anomalies(http: HttpTestingController) {
+    return http.match((req) => req.url === '/api/v1/anomalies').at(-1) as TestRequest;
+  }
+  const answer = (items: object[]) => ({ items, totalItems: items.length, totalPages: 1 });
+
+  it('keeps events and acknowledgements that happened while the anomalies were loading', () => {
+    const { store, bus, points, anomalies } = loadedWith();
+    const acked = rawAnomaly({ metricId: METRIC });
+    const live = anomaly({ metricId: METRIC, windowStart: new Date().toISOString() });
+
+    bus.publish(live, 'event');
+    bus.publish(anomaly({ ...acked, ...ACK }), 'update');
+    points.flush(series([]));
+    anomalies.flush(answer([acked]));
+
+    expect(store.anomalies().items.map((item) => item.id)).toContain(live.id);
+    expect(store.anomalies().items.find((item) => item.id === acked.id)?.acknowledgedAt).toBe(
+      ACK.acknowledgedAt,
+    );
+  });
+
+  it('does not let an older snapshot reopen an acknowledged marker', () => {
+    const { store, http, bus, points, anomalies } = loadedWith();
+    const raw = rawAnomaly({ metricId: METRIC });
+    points.flush(series([]));
+    anomalies.flush(answer([raw]));
+    bus.publish(anomaly({ ...raw, ...ACK }), 'update');
+
+    store.resync();
+    http_anomalies(http).flush(answer([raw]));
+    expect(store.anomalies().items[0].acknowledgedAt).toBe(ACK.acknowledgedAt);
+  });
+
+  it('reads the anomalies of the displayed window again after a reconnect, without the points', () => {
+    const { store, http, points, anomalies } = loadedWith();
+    points.flush(series([]));
+    anomalies.flush(answer([]));
+    const from = store.window()?.fromMs as number;
+
+    store.resync();
+    http.expectNone(`/api/v1/metrics/${METRIC}/points`);
+    const again = http_anomalies(http);
+    expect(Date.parse(again.request.params.get('from') as string)).toBe(from);
+    again.flush(answer([rawAnomaly({ metricId: METRIC, windowStart: new Date().toISOString() })]));
+    expect(store.anomalies().items).toHaveLength(1);
+  });
+
+  it('queues one more read when the reconnect happens while the anomalies are still loading', () => {
+    const { store, http, points, anomalies } = loadedWith();
+    store.resync();
+    points.flush(series([]));
+    anomalies.flush(answer([]));
+    expect(http_anomalies(http)).toBeDefined();
+    expect(store.anomalies().status).toBe('loading');
+  });
+
+  it('reads the anomalies again when the live stream reconnects', async () => {
+    const log = new SourceLog();
+    TestBed.configureTestingModule({
+      providers: [
+        provideHttpClient(withInterceptors([errorInterceptor])),
+        provideHttpClientTesting(),
+        provideRouter([]),
+        { provide: SessionStore, useValue: fakeSession('OWNER') },
+        { provide: EVENT_SOURCE_FACTORY, useValue: log.factory },
+      ],
+    });
+    const http = TestBed.inject(HttpTestingController);
+    const store = TestBed.inject(MetricsStore);
+    const stream = TestBed.inject(AnomalyStreamService);
+    store.open(METRIC);
+    http_points(http).flush(series([]));
+    http_anomalies(http).flush(answer([]));
+
+    stream.retain();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    http.expectOne('/api/v1/stream/ticket').flush({ ticket: 't0', expiresInSeconds: 30 });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    log.latest.open();
+
+    const again = http_anomalies(http);
+    again.flush(answer([rawAnomaly({ metricId: METRIC, windowStart: new Date().toISOString() })]));
+    expect(store.anomalies().items).toHaveLength(1);
+    stream.shutdown();
+  });
+
+  describe('range bounds', () => {
+    const FROM = Date.parse('2026-04-01T00:00:00Z');
+    const TO = FROM + 6 * HOUR;
+    const inside = (ms: number) =>
+      anomaly({ metricId: METRIC, windowStart: new Date(ms).toISOString() });
+
+    function customLoaded(existing: object[] = []) {
+      const context = setup();
+      context.store.open(METRIC);
+      context.store.selectRange({ kind: 'custom', fromMs: FROM, toMs: TO });
+      const points = context.http
+        .match((req) => req.url === `/api/v1/metrics/${METRIC}/points`)
+        .at(-1) as TestRequest;
+      const anomalies = context.http
+        .match((req) => req.url === '/api/v1/anomalies')
+        .at(-1) as TestRequest;
+      points.flush(series([]));
+      anomalies.flush({ items: existing, totalItems: existing.length, totalPages: 1 });
+      return context;
+    }
+
+    it('rejects events at or after the upper bound of a custom range, and before the lower', () => {
+      const { store, bus } = customLoaded();
+      bus.publish(inside(TO), 'event');
+      bus.publish(inside(TO + HOUR), 'event');
+      bus.publish(inside(FROM - 1), 'event');
+      expect(store.anomalies().items).toEqual([]);
+      expect(store.anomalies().totalItems).toBe(0);
+
+      bus.publish(inside(FROM), 'event');
+      bus.publish(inside(TO - 1), 'event');
+      expect(store.anomalies().items).toHaveLength(2);
+    });
+
+    it('does not evict in-range markers when out-of-range events arrive on a full list', () => {
+      const existing = Array.from({ length: ANOMALY_LIMIT }, (_, i) =>
+        rawAnomaly({
+          metricId: METRIC,
+          windowStart: new Date(FROM + i * 60_000).toISOString(),
+        }),
+      );
+      const { store, bus } = customLoaded(existing);
+      for (let i = 0; i < 20; i += 1) {
+        bus.publish(inside(TO + (i + 1) * HOUR), 'event');
+      }
+      expect(
+        store
+          .anomalies()
+          .items.map((item) => item.id)
+          .sort(),
+      ).toEqual(existing.map((item) => (item as { id: string }).id).sort());
+    });
+
+    it('leaves a live preset open at the top: an event after the window start is kept', () => {
+      const { store, bus, points, anomalies } = loadedWith();
+      points.flush(series([]));
+      anomalies.flush(answer([]));
+      const later = (store.window()?.toMs as number) + 10 * 60_000;
+      bus.publish(inside(later), 'event');
       expect(store.anomalies().items).toHaveLength(1);
     });
   });
