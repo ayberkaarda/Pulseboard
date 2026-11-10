@@ -1,0 +1,8 @@
+node_modules
+dist
+coverage
+.angular
+out-tsc
+Dockerfile
+.dockerignore
+npm-debug.log
