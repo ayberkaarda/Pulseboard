@@ -95,8 +95,9 @@ public class JdbcMetricSampleRepository implements MetricSampleRepository {
 
     public JdbcMetricSampleRepository(JdbcTemplate jdbcTemplate,
             @Value("${pulseboard.query.statement-timeout}") Duration queryStatementTimeout) {
-        if (queryStatementTimeout.isNegative() || queryStatementTimeout.isZero()) {
-            throw new IllegalArgumentException("pulseboard.query.statement-timeout must be positive");
+        if (queryStatementTimeout.toMillis() < 1) {
+            // PostgreSQL reads 0 as "no timeout", so a sub-millisecond value must not be rounded down to it.
+            throw new IllegalArgumentException("pulseboard.query.statement-timeout must be at least 1ms");
         }
         this.jdbcTemplate = jdbcTemplate;
         this.queryStatementTimeout = queryStatementTimeout;
