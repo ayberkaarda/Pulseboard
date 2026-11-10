@@ -81,10 +81,17 @@ export const SessionStore = signalStore(
 
     // Bumped by every logout; a response that belongs to an older session is discarded.
     let generation = 0;
+    // Bumped whenever the signed-in identity changes (logout, login, register), never by a token
+    // refresh. A request sent under one epoch must not be replayed under another.
+    let epoch = 0;
     let inFlight: Promise<RefreshOutcome> | null = null;
 
-    function clearSession(): void {
+    function clearSession(newIdentity = false): void {
       generation += 1;
+      // Only a deliberate sign-out changes the identity; a rejected refresh just ends the session.
+      if (newIdentity) {
+        epoch += 1;
+      }
       patchState(store, EMPTY);
       storage.clear();
       lifecycle.clear();
@@ -109,6 +116,7 @@ export const SessionStore = signalStore(
       const startedIn = generation;
       const raw = await request();
       if (startedIn === generation) {
+        epoch += 1;
         adopt(raw);
       }
     }
@@ -151,6 +159,12 @@ export const SessionStore = signalStore(
     };
 
     return {
+      /**
+       * Identifies the current session identity. It changes on logout and on every login or
+       * register, and stays the same across token refreshes.
+       */
+      identityEpoch: (): number => epoch,
+
       async login(credentials: LoginRequest): Promise<void> {
         await exchange(() =>
           firstValueFrom(
@@ -205,7 +219,7 @@ export const SessionStore = signalStore(
        */
       logout(): void {
         const refreshToken = store.refreshToken();
-        clearSession();
+        clearSession(true);
         if (refreshToken !== null) {
           api
             .post('/api/v1/auth/logout', { body: { refreshToken }, context: quietContext() })

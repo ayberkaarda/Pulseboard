@@ -9,6 +9,17 @@ import { Notifier } from '../notify/notifier.service';
 import { SessionStore } from '../session/session.store';
 import { SKIP_ERROR_TOAST, isApiRequest, isAuthEndpoint } from './api-request';
 
+/**
+ * A request was sent under a session that has since ended or been replaced. It is dropped without
+ * a replay, so it can never be sent with another user's credentials.
+ */
+export class SessionChangedError extends Error {
+  constructor() {
+    super('The session changed while the request was in flight');
+    this.name = 'SessionChangedError';
+  }
+}
+
 /** Adds the bearer token to same-origin /api/ requests, except the public auth endpoints. */
 export const authInterceptor: HttpInterceptorFn = (request, next) => {
   if (!isApiRequest(request.url) || isAuthEndpoint(request.url)) {
@@ -33,11 +44,17 @@ export const refreshInterceptor: HttpInterceptorFn = (request, next) => {
   const router = inject(Router);
   const notifier = inject(Notifier);
   const sentWith = session.accessToken();
+  const sentIn = session.identityEpoch();
+  const cancelled = () => throwError(() => new SessionChangedError());
 
   return next(request).pipe(
     catchError((error: unknown) => {
       if (!(error instanceof HttpErrorResponse) || error.status !== 401 || sentWith === null) {
         return throwError(() => error);
+      }
+      // A different identity (logout, another user signed in) must never inherit this request.
+      if (session.identityEpoch() !== sentIn) {
+        return cancelled();
       }
       // The replay goes straight to the next handler, never back through this interceptor, so a
       // request is replayed at most once.
@@ -48,6 +65,9 @@ export const refreshInterceptor: HttpInterceptorFn = (request, next) => {
       }
       return from(session.refresh()).pipe(
         switchMap((outcome) => {
+          if (session.identityEpoch() !== sentIn) {
+            return cancelled();
+          }
           if (outcome === 'refreshed') {
             return replay();
           }

@@ -9,7 +9,12 @@ import { REFRESH_TOKEN_STORAGE_KEY } from '../session/refresh-token-storage';
 import { SessionStore } from '../session/session.store';
 import { StubPage, settle, tokenResponse } from '../testing/auth-testing';
 import { quietContext } from './api-request';
-import { authInterceptor, errorInterceptor, refreshInterceptor } from './interceptors';
+import {
+  SessionChangedError,
+  authInterceptor,
+  errorInterceptor,
+  refreshInterceptor,
+} from './interceptors';
 
 const LOGIN = { tenantSlug: 'acme', email: 'ada@acme.test', password: 'correct horse battery' };
 
@@ -217,6 +222,59 @@ describe('refresh interceptor', () => {
     const replay = http.expectOne('/api/v1/services');
     expect(replay.request.method).toBe('POST');
     expect(replay.request.body).toEqual({ name: 'api' });
+  });
+
+  it('never replays a late 401 of user A with the bearer of user B who signed in meanwhile', async () => {
+    const { http, client, session } = await setup();
+    let error: unknown;
+    client.post('/api/v1/anomalies/a1/acknowledge', {}).subscribe({ error: (e) => (error = e) });
+    const late = http.expectOne('/api/v1/anomalies/a1/acknowledge');
+
+    session.logout();
+    http.expectOne('/api/v1/auth/logout').flush(null);
+    const signIn = session.login(LOGIN);
+    http.expectOne('/api/v1/auth/login').flush(tokenResponse(7));
+    await signIn;
+    expect(session.accessToken()).toBe('access-7');
+
+    late.flush(null, unauthorized());
+    await settle();
+
+    expect(error).toBeInstanceOf(SessionChangedError);
+    http.expectNone('/api/v1/anomalies/a1/acknowledge');
+    http.expectNone('/api/v1/auth/refresh');
+    expect(session.accessToken()).toBe('access-7');
+  });
+
+  it('drops the request when the user signs out while its refresh is in flight', async () => {
+    const { http, client, session, notifier } = await setup();
+    let error: unknown;
+    client.get('/api/v1/services').subscribe({ error: (e) => (error = e) });
+    http.expectOne('/api/v1/services').flush(null, unauthorized());
+    const refresh = http.expectOne('/api/v1/auth/refresh');
+
+    session.logout();
+    http.expectOne('/api/v1/auth/logout').flush(null);
+    refresh.flush(tokenResponse(2));
+    await settle();
+
+    expect(error).toBeInstanceOf(SessionChangedError);
+    http.expectNone('/api/v1/services');
+    expect(session.accessToken()).toBeNull();
+    expect(notifier.info).not.toHaveBeenCalled();
+  });
+
+  it('still replays after a refresh that keeps the same identity', async () => {
+    const { http, client, session } = await setup();
+    const before = session.identityEpoch();
+    client.get('/api/v1/services').subscribe();
+    http.expectOne('/api/v1/services').flush(null, unauthorized());
+    http.expectOne('/api/v1/auth/refresh').flush(tokenResponse(2));
+    await settle();
+    expect(session.identityEpoch()).toBe(before);
+    expect(http.expectOne('/api/v1/services').request.headers.get('Authorization')).toBe(
+      'Bearer access-2',
+    );
   });
 
   it.each([
