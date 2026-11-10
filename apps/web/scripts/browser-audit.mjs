@@ -131,6 +131,17 @@ async function seed() {
   };
 }
 
+// Dialogs fade in; scanning mid-fade blends their colours and reports contrast that is not there.
+async function openDialog(page) {
+  const dialog = page.getByRole('dialog');
+  await dialog.waitFor();
+  await page.waitForFunction(() => {
+    const el = document.querySelector('.mat-mdc-dialog-container');
+    return el !== null && getComputedStyle(el).opacity === '1';
+  });
+  await page.waitForTimeout(300);
+}
+
 async function scan(page, name, scheme, results) {
   const axe = await new AxeBuilder({ page }).withTags(TAGS).analyze();
   const label = `${name} (${scheme})`;
@@ -199,7 +210,7 @@ try {
     await page.getByRole('list', { name: 'Alert rules', exact: true }).waitFor();
     await scan(page, '/app/alerts/rules', scheme, results);
     await page.getByRole('button', { name: 'Delete Latency above 300 ms' }).click();
-    await page.getByRole('dialog').waitFor();
+    await openDialog(page);
     await scan(page, '/app/alerts/rules delete confirmation', scheme, results);
     await page.getByRole('button', { name: 'Cancel' }).click();
 
@@ -210,7 +221,7 @@ try {
       .getByRole('button', { name: /^Details of/ })
       .first()
       .click();
-    await page.getByRole('dialog').waitFor();
+    await openDialog(page);
     await scan(page, '/app/alerts/history event details', scheme, results);
     await page.keyboard.press('Escape');
 
