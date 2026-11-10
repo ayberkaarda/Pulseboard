@@ -283,3 +283,15 @@ The end-to-end test talks to `api-core` directly. See `apps/web/nginx.conf` for 
 ### 4.6 End-to-end check
 
 `make e2e` (`scripts/e2e/run.py`, Python standard library only) starts postgres, redis, `api-core` and `analytics` as the throwaway compose project `pulseboard-e2e` with generated secrets, ingests a noisy series with a spike, waits (at most 180 s) for the scheduler, and asserts the anomaly in REST and SSE, tenant isolation and the internal HMAC behaviour. The project is always removed afterwards; `make e2e-down` cleans up after an interrupted run. In CI it runs as the separate workflow `.github/workflows/e2e.yml` (nightly schedule and manual dispatch only, 20 minute timeout), not on push or pull request. `make check-compose` (`scripts/check_compose_env.py`) verifies that `docker compose config` passes the analytics and stream settings.
+
+### 4.7 Frontend quality gates
+
+Run from `apps/web` (CI runs them in this order in `.github/workflows/web.yml`, which triggers on changes to `apps/web/**` and `contracts/**`):
+
+- `npm run api:check`: generated API types match the OpenAPI contract.
+- `npm run lint` and `npm run format:check`: ESLint and Prettier.
+- `npm run typecheck`: strict TypeScript for app and specs.
+- `npm test`: unit and component tests.
+- `npm run build`: production build.
+- `npx @lhci/cli autorun`: Lighthouse CI on `/login` and `/register` against the static build (`lighthouserc.json`, accessibility score at least 0.9, report in `.lighthouseci`). Needs Chrome.
+- `BASE=http://localhost:8081 node scripts/browser-audit.mjs`: axe browser audit of every page in light and dark. Needs the full running stack, so it is not part of CI.
