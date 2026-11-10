@@ -31,9 +31,14 @@ SETTINGS = [
     ("analytics", "SCORE_DEADLINE_SECONDS", "50", "30"),
     ("analytics", "SCORE_LEASE_MARGIN_SECONDS", "5", "3"),
     ("analytics", "METRIC_LOCK_TIMEOUT_SECONDS", "10", "4"),
+    ("analytics", "DB_POOL_TIMEOUT_SECONDS", "5", "2"),
+    ("analytics", "DB_CONNECT_TIMEOUT_SECONDS", "5", "3"),
     ("analytics", "FOREST_CACHE_MAX", "256", "64"),
     ("analytics", "VERIFY_DB_ROLES", "true", "false"),
     ("api-core", "ANOMALY_STREAM_MAX_PER_TENANT", "10", "3"),
+    ("api-core", "STREAM_TICKET_TTL", "30s", "20s"),
+    ("api-core", "STREAM_TICKET_ISSUE_CAPACITY", "30", "5"),
+    ("api-core", "STREAM_TICKET_ISSUE_PERIOD", "1m", "2m"),
 ]
 
 
