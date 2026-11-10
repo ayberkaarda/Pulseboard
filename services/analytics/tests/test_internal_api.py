@@ -187,3 +187,34 @@ def test_notify_outage_does_not_fail_the_request(
 
     assert response.status_code == 200
     assert response.json()["inserted"] >= 1
+
+
+@pytest.mark.parametrize("valid_first", [True, False])
+@pytest.mark.parametrize("name", ["X-Internal-Signature", "x-internal-signature"])
+def test_duplicate_signature_headers_are_unauthorized_in_both_orders(
+    client: TestClient, owner: Engine, valid_first: bool, name: str
+) -> None:
+    body = _body(_spiky_metric(owner))
+    good = (SIGNATURE_HEADER, sign(SECRET, body))
+    bad = (name, "0" * 64)
+
+    response = client.post(PATH, content=body, headers=[good, bad] if valid_first else [bad, good])
+
+    assert response.status_code == 401
+    with owner.connect() as conn:
+        assert conn.execute(text("SELECT count(*) FROM anomaly")).scalar_one() == 0
+
+
+def test_identical_duplicate_signature_headers_are_unauthorized_too(
+    client: TestClient, owner: Engine
+) -> None:
+    body = _body(_spiky_metric(owner))
+    signature = sign(SECRET, body)
+
+    response = client.post(
+        PATH,
+        content=body,
+        headers=[(SIGNATURE_HEADER, signature), (SIGNATURE_HEADER.lower(), signature)],
+    )
+
+    assert response.status_code == 401

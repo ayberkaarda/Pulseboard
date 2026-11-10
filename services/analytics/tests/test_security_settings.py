@@ -98,3 +98,20 @@ def test_application_refuses_to_start_with_a_weak_secret(monkeypatch: pytest.Mon
 
     with pytest.raises(SettingsError), TestClient(create_app()):
         pass
+
+
+@pytest.mark.parametrize(
+    "secret", [" " * 32, " " * 64, "\t\n" * 20, " " * 10 + "a" * 21 + " " * 10]
+)
+def test_blank_or_whitespace_padded_secret_is_refused(secret: str) -> None:
+    with pytest.raises(SettingsError, match="at least 32"):
+        Settings.from_env({**GOOD_ENV, "INTERNAL_SHARED_SECRET": secret})
+
+
+def test_valid_secret_keeps_its_exact_bytes() -> None:
+    padded = " " + "k" * 32 + " "
+
+    assert (
+        Settings.from_env({**GOOD_ENV, "INTERNAL_SHARED_SECRET": padded}).internal_shared_secret
+        == padded
+    )
