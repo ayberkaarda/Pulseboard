@@ -1,0 +1,145 @@
+<app-page-head
+  title="Anomalies"
+  summary="Every moment a metric left its expected range, newest first."
+>
+  <app-connection-status />
+</app-page-head>
+
+<form
+  class="pb-toolbar"
+  role="search"
+  aria-label="Filter anomalies"
+  (submit)="$event.preventDefault()"
+>
+  <label class="pb-field">
+    <span>Severity</span>
+    <select
+      class="pb-select"
+      [value]="feed.filters().severity ?? ''"
+      (change)="onSeverity($any($event.target).value)"
+    >
+      <option value="">All severities</option>
+      <option value="HIGH">High</option>
+      <option value="MEDIUM">Medium</option>
+      <option value="LOW">Low</option>
+    </select>
+  </label>
+  <label class="pb-field">
+    <span>Status</span>
+    <select
+      class="pb-select"
+      [value]="feed.filters().status"
+      (change)="onStatus($any($event.target).value)"
+    >
+      <option value="all">Open and acknowledged</option>
+      <option value="open">Open</option>
+      <option value="acknowledged">Acknowledged</option>
+    </select>
+  </label>
+  <label class="pb-field">
+    <span>Service</span>
+    <select
+      class="pb-select"
+      [value]="feed.filters().serviceId ?? ''"
+      (change)="onService($any($event.target).value)"
+    >
+      <option value="">All services</option>
+      @for (service of catalog.services().items; track service.id) {
+        <option [value]="service.id">{{ service.name }}</option>
+      }
+    </select>
+  </label>
+  <label class="pb-field">
+    <span>Metric</span>
+    <select
+      class="pb-select"
+      [disabled]="feed.filters().serviceId === null"
+      [value]="feed.filters().metricId ?? ''"
+      (change)="onMetric($any($event.target).value)"
+    >
+      <option value="">All metrics</option>
+      @for (metric of filterMetrics(); track metric.id) {
+        <option [value]="metric.id">{{ metric.name }}</option>
+      }
+    </select>
+  </label>
+  @if (hasFilters()) {
+    <button mat-button type="button" (click)="clearFilters()">Clear filters</button>
+  }
+</form>
+
+@if (!actions.canAcknowledge()) {
+  <p id="ack-note" class="pb-note">Only owners and admins can acknowledge anomalies.</p>
+}
+
+<app-live-announcer [count]="feed.liveCount()" />
+
+@if (feed.pendingIds().length > 0) {
+  <p class="pending">
+    <button mat-stroked-button type="button" (click)="feed.showNewest()">
+      Show {{ feed.pendingIds().length }} new
+      {{ feed.pendingIds().length === 1 ? 'anomaly' : 'anomalies' }}
+    </button>
+  </p>
+}
+
+@switch (feed.status()) {
+  @case ('error') {
+    @if (feed.problem(); as problem) {
+      <app-load-error
+        heading="Could not load anomalies"
+        [problem]="problem"
+        (retry)="feed.load()"
+      />
+    }
+  }
+  @case ('loaded') {
+    @if (feed.items().length === 0) {
+      @if (hasFilters()) {
+        <app-empty-state
+          heading="No anomalies match these filters"
+          body="Widen the filters to see more."
+        >
+          <button mat-stroked-button type="button" (click)="clearFilters()">Clear filters</button>
+        </app-empty-state>
+      } @else {
+        <app-empty-state
+          heading="No anomalies yet"
+          body="When a metric moves outside its expected range, it appears here as it happens."
+        />
+      }
+    } @else {
+      <div role="list" class="pb-list" aria-label="Anomalies">
+        @for (anomaly of feed.items(); track anomaly.id) {
+          <app-anomaly-row
+            [anomaly]="anomaly"
+            [metricName]="metricName(anomaly.metricId)"
+            [serviceName]="serviceName(anomaly.metricId)"
+          />
+        }
+      </div>
+      <nav class="pager" aria-label="Pagination">
+        <button
+          mat-stroked-button
+          type="button"
+          [disabled]="feed.page() === 0"
+          (click)="feed.setPage(feed.page() - 1)"
+        >
+          Previous
+        </button>
+        <span class="pb-figures">{{ pageLabel() }}, {{ feed.totalItems() }} in total</span>
+        <button
+          mat-stroked-button
+          type="button"
+          [disabled]="feed.page() + 1 >= feed.totalPages()"
+          (click)="feed.setPage(feed.page() + 1)"
+        >
+          Next
+        </button>
+      </nav>
+    }
+  }
+  @default {
+    <app-skeleton-rows label="Loading anomalies" />
+  }
+}

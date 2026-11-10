@@ -1,0 +1,90 @@
+// Small shared patterns for the data pages: a labelled select, a toolbar, a panel and the chart
+// tooltip. Class names are prefixed so they cannot collide with component styles.
+
+.pb-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--pb-space-3) var(--pb-space-4);
+  margin-bottom: var(--pb-space-5);
+}
+
+.pb-field {
+  display: grid;
+  gap: var(--pb-space-1);
+  color: var(--pb-ink-2);
+  font-size: var(--pb-text-sm);
+
+  > span {
+    font-weight: 560;
+  }
+}
+
+.pb-select,
+.pb-input {
+  min-width: 150px;
+  height: 40px;
+  padding: 0 var(--pb-space-3);
+  background: var(--pb-surface);
+  border: 1px solid var(--pb-line-strong);
+  border-radius: var(--pb-radius-sm);
+  color: var(--pb-ink);
+  font: inherit;
+}
+
+.pb-select:disabled {
+  opacity: 0.6;
+}
+
+.pb-panel {
+  padding: var(--pb-space-4) var(--pb-space-5);
+  background: var(--pb-surface);
+  border: 1px solid var(--pb-line);
+  border-radius: var(--pb-radius-md);
+}
+
+.pb-list {
+  display: grid;
+  gap: var(--pb-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pb-note {
+  margin-bottom: var(--pb-space-4);
+  color: var(--pb-ink-2);
+  font-size: var(--pb-text-sm);
+}
+
+// ECharts tooltip. The markup comes from chart-options.ts and uses classes only, because the content
+// security policy does not allow inline style attributes.
+.pb-chart-tooltip {
+  font-variant-numeric: tabular-nums;
+
+  .pb-tt-time {
+    margin-bottom: var(--pb-space-1);
+    color: var(--pb-ink-2);
+  }
+
+  .pb-tt-row {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--pb-space-4);
+  }
+
+  .pb-tt-block {
+    margin-top: var(--pb-space-2);
+    padding-top: var(--pb-space-2);
+    border-top: 1px solid var(--pb-line);
+  }
+
+  .pb-tt-title {
+    font-weight: 600;
+  }
+
+  .pb-tt-note {
+    margin-top: var(--pb-space-1);
+    color: var(--pb-ink-2);
+  }
+}

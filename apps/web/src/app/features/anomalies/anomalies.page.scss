@@ -1,0 +1,13 @@
+.pending {
+  margin-bottom: var(--pb-space-3);
+}
+
+.pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--pb-space-3);
+  margin-top: var(--pb-space-4);
+  color: var(--pb-ink-2);
+}
