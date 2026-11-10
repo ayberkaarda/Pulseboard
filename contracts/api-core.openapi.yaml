@@ -3,7 +3,7 @@ info:
   description: "Identity, tenancy, metric ingestion and queries, anomalies and their\
     \ live stream. Errors are RFC 9457 problem details (application/problem+json)."
   title: Pulseboard api-core
-  version: 0.4.0
+  version: 0.5.0
 servers:
 - description: Same origin
   url: /
@@ -274,6 +274,44 @@ paths:
               schema:
                 $ref: "#/components/schemas/TokenResponse"
           description: OK
+      tags:
+      - Authentication
+  /api/v1/auth/logout:
+    post:
+      description: "Revokes the whole refresh-token family of the presented refresh\
+        \ token, so neither it nor any token rotated from it can be exchanged again.\
+        \ Needs no access token (it may already have expired; one that is sent is\
+        \ ignored). Idempotent: an unknown, expired or already revoked token is answered\
+        \ with 204 exactly like a valid one."
+      operationId: logout
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LogoutRequest"
+        required: true
+      responses:
+        "204":
+          description: Session ended (or there was none)
+        "400":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Malformed body
+        "429":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Too many requests from this client
+          headers:
+            Retry-After:
+              description: Seconds until a retry can succeed
+              schema:
+                type: integer
+              style: simple
+      summary: End the session
       tags:
       - Authentication
   /api/v1/auth/refresh:
@@ -561,6 +599,37 @@ paths:
       security:
       - bearerAuth: []
       - apiKey: []
+      tags:
+      - Services
+  /api/v1/services/{serviceId}:
+    get:
+      description: 404 when the id is unknown or belongs to another tenant (identical
+        responses).
+      operationId: getService
+      parameters:
+      - in: path
+        name: serviceId
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServiceResponse"
+          description: OK
+        "404":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: No such service for the caller's tenant
+      security:
+      - bearerAuth: []
+      - apiKey: []
+      summary: Get a service
       tags:
       - Services
   /api/v1/services/{serviceId}/metrics:
@@ -892,6 +961,20 @@ components:
           type: string
           format: date-time
           description: Inclusive start of the scored window.
+      required:
+      - acknowledgedAt
+      - acknowledgedBy
+      - createdAt
+      - details
+      - detector
+      - id
+      - metricId
+      - score
+      - serviceId
+      - severity
+      - tenantId
+      - windowEnd
+      - windowStart
     AnomalyDetectedItem:
       type: object
       additionalProperties: false
@@ -967,6 +1050,9 @@ components:
           format: int32
           description: Distinct entries whose id does not exist or belongs to another
             tenant than the one claimed.
+      required:
+      - accepted
+      - unknown
     AnomalyPage:
       type: object
       description: "One page of anomalies, newest window first."
@@ -991,6 +1077,12 @@ components:
           type: integer
           format: int64
           description: Number of pages of this size.
+      required:
+      - items
+      - page
+      - size
+      - totalItems
+      - totalPages
     ApiKeyCreatedResponse:
       type: object
       properties:
@@ -1006,6 +1098,12 @@ components:
           type: string
         prefix:
           type: string
+      required:
+      - createdAt
+      - id
+      - key
+      - name
+      - prefix
     CreateApiKeyRequest:
       type: object
       properties:
@@ -1068,6 +1166,9 @@ components:
           description: "Points that were not stored, in ascending index order."
           items:
             $ref: "#/components/schemas/RejectedPoint"
+      required:
+      - accepted
+      - rejected
     LoginRequest:
       type: object
       properties:
@@ -1087,6 +1188,15 @@ components:
       - email
       - password
       - tenantSlug
+    LogoutRequest:
+      type: object
+      properties:
+        refreshToken:
+          type: string
+          maxLength: 256
+          minLength: 0
+      required:
+      - refreshToken
     MetricBatch:
       type: object
       additionalProperties: false
@@ -1128,6 +1238,13 @@ components:
           format: uuid
         unit:
           type: string
+      required:
+      - aggregation
+      - createdAt
+      - id
+      - name
+      - serviceId
+      - unit
     MetricPoint:
       type: object
       additionalProperties: false
@@ -1170,6 +1287,10 @@ components:
           format: double
           description: Aggregated value of the bucket; null when the aggregate is
             not a finite number (not reachable with values accepted by ingestion).
+      required:
+      - count
+      - ts
+      - value
     MetricPoints:
       type: object
       description: A metric downsampled into epoch-aligned buckets.
@@ -1204,6 +1325,13 @@ components:
           type: string
           format: date-time
           description: "Exclusive end of the queried range, rounded up to whole microseconds."
+      required:
+      - aggregation
+      - from
+      - metricId
+      - points
+      - step
+      - to
     Problem:
       type: object
       description: RFC 9457 problem details (application/problem+json).
@@ -1227,6 +1355,10 @@ components:
           type: string
           description: "Problem type URI, urn:pulseboard:problem:<kind>."
           example: urn:pulseboard:problem:validation
+      required:
+      - status
+      - title
+      - type
     ProblemFieldError:
       type: object
       properties:
@@ -1282,6 +1414,9 @@ components:
             \ | value must be a finite number | value magnitude must not exceed 1e100\
             \ | superseded by a later point with the same metricId and ts."
           example: unknown metric
+      required:
+      - index
+      - reason
     ServiceResponse:
       type: object
       properties:
@@ -1299,6 +1434,11 @@ components:
           format: uuid
         name:
           type: string
+      required:
+      - createdAt
+      - environment
+      - id
+      - name
     StreamTicketResponse:
       type: object
       properties:
@@ -1312,6 +1452,9 @@ components:
           description: "Opaque one-time value for the `ticket` query parameter of\
             \ the stream endpoint. 256 random bits, URL-safe base64 without padding.\
             \ Shown once; never log or store it."
+      required:
+      - expiresInSeconds
+      - ticket
     TokenResponse:
       type: object
       properties:
@@ -1325,6 +1468,8 @@ components:
         refreshTokenExpiresAt:
           type: string
           format: date-time
+          description: End of the refresh token's validity; never later than the end
+            of the session (absolute refresh lifetime).
         role:
           type: string
         tenantId:
@@ -1335,6 +1480,15 @@ components:
         userId:
           type: string
           format: uuid
+      required:
+      - accessToken
+      - accessTokenExpiresAt
+      - refreshToken
+      - refreshTokenExpiresAt
+      - role
+      - tenantId
+      - tokenType
+      - userId
   securitySchemes:
     apiKey:
       description: Tenant API key from /api/v1/api-keys.
