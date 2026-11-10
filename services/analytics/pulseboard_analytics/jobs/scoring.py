@@ -223,6 +223,7 @@ class MetricScorer:
             Detector.ISOLATION_FOREST,
             forest.state,
             expected_version=expected,
+            expected_trained_at=None if state is None else state.trained_at,
             budget=budget,
         )
         if won:

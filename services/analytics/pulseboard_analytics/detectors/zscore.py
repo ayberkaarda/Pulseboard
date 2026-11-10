@@ -45,6 +45,14 @@ def score_for_z(z: float) -> float:
     return min(1.0, abs(z) / SCORE_FULL_AT)
 
 
+def _scale(values: pd.Series) -> float:
+    """A power of two close to the largest magnitude of ``values`` (1 when there is none)."""
+    largest = float(np.nanmax(np.abs(values.to_numpy()), initial=0.0))
+    if not np.isfinite(largest) or largest == 0.0:
+        return 1.0
+    return float(np.ldexp(1.0, int(np.frexp(largest)[1]) - 1))
+
+
 def detect(frame: pd.DataFrame) -> list[DetectorResult]:
     """Return the anomalous points of ``frame`` ordered by time."""
     validate_series(frame)
@@ -52,13 +60,20 @@ def detect(frame: pd.DataFrame) -> list[DetectorResult]:
         return []
 
     values = frame["value"]
-    baseline = values.shift(1).rolling(WINDOW, min_periods=MIN_POINTS)
-    mean = baseline.mean()
-    std = baseline.std()
+    # The z-score does not depend on the unit, so work on values divided by a power of two near
+    # the largest magnitude (an exact operation). Squared deviations of values like 1e-170
+    # would otherwise underflow to zero and silently drop real spikes.
+    scale = _scale(values)
+    scaled = values / scale
+    baseline = scaled.shift(1).rolling(WINDOW, min_periods=MIN_POINTS)
+    scaled_mean = baseline.mean()
+    scaled_std = baseline.std()
+    mean = scaled_mean * scale
+    std = scaled_std * scale
 
     # A baseline whose range is only a few ulps of its magnitude is flat, whatever the unit.
     flat = flat_range(baseline.min(), baseline.max())
-    z_scores = (values - mean) / std.where(~flat)
+    z_scores = (scaled - scaled_mean) / scaled_std.where(~flat)
 
     results: list[DetectorResult] = []
     for index in np.flatnonzero(np.isfinite(z_scores.to_numpy())):
