@@ -5,8 +5,12 @@ import io.pulseboard.core.api.catalog.CatalogDtos.CreateServiceRequest;
 import io.pulseboard.core.api.catalog.CatalogDtos.MetricDefinitionResponse;
 import io.pulseboard.core.api.catalog.CatalogDtos.ServiceResponse;
 import io.pulseboard.core.api.openapi.OpenApiConfiguration;
+import io.pulseboard.core.api.openapi.ProblemDocument;
 import io.pulseboard.core.application.catalog.ServiceCatalogService;
 import io.pulseboard.core.application.tenancy.TenantContext;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -47,6 +51,19 @@ public class ServiceController {
     @GetMapping
     public List<ServiceResponse> listServices() {
         return catalogMapper.toServiceResponses(catalogService.listServices(tenantContext.requireTenantId()));
+    }
+
+    @GetMapping("/{serviceId}")
+    @Operation(summary = "Get a service",
+            description = "404 when the id is unknown or belongs to another tenant (identical responses).",
+            responses = {
+                @ApiResponse(responseCode = "200", description = "OK"),
+                @ApiResponse(responseCode = "404", description = "No such service for the caller's tenant",
+                        content = @Content(mediaType = OpenApiConfiguration.PROBLEM_JSON,
+                                schema = @Schema(implementation = ProblemDocument.class)))
+            })
+    public ServiceResponse getService(@PathVariable("serviceId") UUID serviceId) {
+        return catalogMapper.toResponse(catalogService.getService(tenantContext.requireTenantId(), serviceId));
     }
 
     @PostMapping

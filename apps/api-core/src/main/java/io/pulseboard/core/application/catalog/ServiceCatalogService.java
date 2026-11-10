@@ -35,6 +35,11 @@ public class ServiceCatalogService {
         return serviceRepository.findAllByTenantIdOrderByNameAsc(tenantId);
     }
 
+    @Transactional(readOnly = true)
+    public Service getService(TenantId tenantId, UUID serviceId) {
+        return requireService(tenantId, serviceId);
+    }
+
     @Transactional
     public Service createService(TenantId tenantId, String name, Environment environment) {
         String trimmedName = name.trim();
