@@ -199,6 +199,8 @@ export function anomalyTooltip(anomaly: Anomaly, unit: string): string {
   const expected = expectedText(anomaly.details, unit);
   const sustained = anomaly.endMs > anomaly.startMs;
   const rows: [string, string][] = [
+    ['Metric', anomaly.metricName],
+    ['Service', anomaly.serviceName],
     ['Severity', SEVERITY_LABELS[anomaly.severity]],
     ['Detector', DETECTOR_LABELS[anomaly.detector] ?? anomaly.detector],
     ['Score', anomaly.score.toFixed(2)],

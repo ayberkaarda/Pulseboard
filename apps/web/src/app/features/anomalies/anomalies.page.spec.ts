@@ -52,7 +52,7 @@ const page = (items: object[], totalPages = 1, totalItems = items.length) => ({
   totalPages,
 });
 
-/** Answers the three requests the page makes on opening. */
+/** Answers the requests the page makes on opening. */
 async function open(http: Http, items: object[], totalPages = 1, totalItems = items.length) {
   http
     .expectOne('/api/v1/services')
@@ -60,22 +60,6 @@ async function open(http: Http, items: object[], totalPages = 1, totalItems = it
       { id: SERVICE, name: 'checkout', environment: 'PROD', createdAt: '2026-01-01T00:00:00Z' },
     ]);
   list(http).flush(page(items, totalPages, totalItems));
-  // The effect that asks for metric names runs on the next change detection.
-  TestBed.inject(ApplicationRef).tick();
-  http
-    .match((req) => req.url === `/api/v1/services/${SERVICE}/metrics`)
-    .forEach((req) =>
-      req.flush([
-        {
-          id: METRIC,
-          serviceId: SERVICE,
-          name: 'latency.p95',
-          unit: 'ms',
-          aggregation: 'AVG',
-          createdAt: '2026-01-01T00:00:00Z',
-        },
-      ]),
-    );
 }
 
 describe('AnomaliesPage', () => {
@@ -95,12 +79,21 @@ describe('AnomaliesPage', () => {
     expect(within(rows[0]).getByText(/Z-score, score 0.90/)).toBeInTheDocument();
   });
 
-  it('names the metric and links to its page with the service', async () => {
+  it('names the metric and its service from the anomaly itself and links to the metric page', async () => {
     const { http } = await renderPage();
-    await open(http, [rawAnomaly({ metricId: METRIC, serviceId: SERVICE })]);
+    await open(http, [
+      rawAnomaly({
+        metricId: METRIC,
+        serviceId: SERVICE,
+        metricName: 'latency.p95',
+        serviceName: 'checkout',
+      }),
+    ]);
+    // No lookup of metric definitions is needed to render the rows.
+    http.expectNone((req) => req.url.endsWith('/metrics'));
 
     const link = await screen.findByRole('link', { name: 'latency.p95' });
-    expect(link).toHaveAttribute('href', `/app/metrics/${METRIC}?service=${SERVICE}`);
+    expect(link).toHaveAttribute('href', `/app/metrics/${METRIC}`);
     expect(
       within(screen.getByRole('list', { name: 'Anomalies' })).getByText('checkout'),
     ).toBeInTheDocument();
@@ -147,8 +140,20 @@ describe('AnomaliesPage', () => {
     expect(screen.getByLabelText('Metric')).toBeDisabled();
     await user.selectOptions(screen.getByLabelText('Service'), SERVICE);
     list(http).flush(page([]));
+    TestBed.inject(ApplicationRef).tick();
+    http.expectOne(`/api/v1/services/${SERVICE}/metrics`).flush([
+      {
+        id: METRIC,
+        serviceId: SERVICE,
+        name: 'latency.p95',
+        unit: 'ms',
+        aggregation: 'AVG',
+        createdAt: '2026-01-01T00:00:00Z',
+      },
+    ]);
 
     expect(screen.getByLabelText('Metric')).toBeEnabled();
+    await screen.findByRole('option', { name: 'latency.p95' });
     await user.selectOptions(screen.getByLabelText('Metric'), METRIC);
     const request = list(http);
     expect(request.request.params.get('metricId')).toBe(METRIC);

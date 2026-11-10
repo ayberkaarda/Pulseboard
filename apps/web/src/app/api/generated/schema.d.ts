@@ -181,6 +181,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/metrics/{metricId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a metric definition
+         * @description The same representation as the items of a service's metric list (it carries the serviceId). 404 when the id is unknown or belongs to another tenant (identical responses).
+         */
+        get: operations["getMetric"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/metrics/{metricId}/points": {
         parameters: {
             query?: never;
@@ -344,6 +364,8 @@ export interface components {
             id: string;
             /** Format: uuid */
             metricId: string;
+            /** @description Name of the metric. */
+            metricName: string;
             /**
              * Format: double
              * @description Anomaly score between 0 and 1.
@@ -354,6 +376,8 @@ export interface components {
              * @description Service that owns the metric.
              */
             serviceId: string;
+            /** @description Name of the service that owns the metric. */
+            serviceName: string;
             /** @enum {string} */
             severity: "LOW" | "MEDIUM" | "HIGH";
             /** Format: uuid */
@@ -597,6 +621,11 @@ export interface components {
             environment: "PROD" | "STAGING" | "DEV";
             /** Format: uuid */
             id: string;
+            /**
+             * Format: date-time
+             * @description Timestamp of the newest sample over all metrics of the service; null while the service has no samples.
+             */
+            lastPointAt: string | null;
             name: string;
         };
         StreamTicketResponse: {
@@ -1092,6 +1121,37 @@ export interface operations {
                 headers: {
                     /** @description Seconds until a retry can succeed */
                     "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getMetric: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                metricId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MetricDefinitionResponse"];
+                };
+            };
+            /** @description No such metric for the caller's tenant */
+            404: {
+                headers: {
                     [name: string]: unknown;
                 };
                 content: {

@@ -49,7 +49,7 @@ describe('ServiceDetailPage', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'checkout' })).toBeInTheDocument();
     expect(screen.getByText('STAGING environment')).toBeInTheDocument();
     const link = within(screen.getByRole('list', { name: 'Metrics' })).getByRole('link');
-    expect(link).toHaveAttribute('href', `/app/metrics/${METRIC.id}?service=${SERVICE.id}`);
+    expect(link).toHaveAttribute('href', `/app/metrics/${METRIC.id}`);
     expect(link).toHaveTextContent('http.latency');
     expect(link).toHaveTextContent('95th percentile, ms');
   });

@@ -51,7 +51,10 @@ export type Detector = 'ZSCORE' | 'ISOLATION_FOREST';
 export interface Anomaly {
   readonly id: string;
   readonly metricId: string;
+  /** Name of the metric, so a row never has to look it up. */
+  readonly metricName: string;
   readonly serviceId: string;
+  readonly serviceName: string;
   readonly severity: Severity;
   readonly detector: Detector;
   /** Between 0 and 1. */
@@ -73,7 +76,9 @@ export function toAnomaly(raw: AnomalyRaw): Anomaly {
   return {
     id: raw.id,
     metricId: raw.metricId,
+    metricName: raw.metricName,
     serviceId: raw.serviceId,
+    serviceName: raw.serviceName,
     severity: raw.severity,
     detector: raw.detector,
     score: raw.score,
@@ -105,6 +110,8 @@ export function parseStreamAnomaly(data: unknown): Anomaly | null {
     !text(raw['id']) ||
     !text(raw['metricId']) ||
     !text(raw['serviceId']) ||
+    !text(raw['metricName']) ||
+    !text(raw['serviceName']) ||
     !text(raw['severity']) ||
     !SEVERITIES.includes(raw['severity']) ||
     !text(raw['windowStart']) ||

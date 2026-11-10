@@ -25,15 +25,10 @@ import { AnomalyActions } from './anomaly-actions.service';
     </div>
     <div class="what">
       @if (linkToMetric()) {
-        <a
-          class="metric"
-          [routerLink]="['/app/metrics', anomaly().metricId]"
-          [queryParams]="{ service: anomaly().serviceId }"
-          >{{ metricName() ?? 'Metric ' + shortId() }}</a
-        >
-        @if (serviceName(); as service) {
-          <span class="service">{{ service }}</span>
-        }
+        <a class="metric" [routerLink]="['/app/metrics', anomaly().metricId]">{{
+          anomaly().metricName
+        }}</a>
+        <span class="service">{{ anomaly().serviceName }}</span>
       }
       <span class="meta">{{ detector() }}, score {{ score() }}</span>
     </div>
@@ -134,8 +129,6 @@ import { AnomalyActions } from './anomaly-actions.service';
 })
 export class AnomalyRowComponent {
   readonly anomaly = input.required<Anomaly>();
-  readonly metricName = input<string>();
-  readonly serviceName = input<string>();
   readonly linkToMetric = input(true);
   /** Id of the element that explains why acknowledging is unavailable. */
   readonly noteId = input('ack-note');
@@ -148,7 +141,6 @@ export class AnomalyRowComponent {
     () => DETECTOR_LABELS[this.anomaly().detector] ?? this.anomaly().detector,
   );
   protected readonly score = computed(() => this.anomaly().score.toFixed(2));
-  protected readonly shortId = computed(() => this.anomaly().metricId.slice(0, 8));
   protected readonly acknowledged = computed(() => this.anomaly().acknowledgedAt !== null);
   protected readonly pending = computed(() => this.actions.pending().has(this.anomaly().id));
   protected readonly absolute = computed(() => absoluteTime(this.anomaly().startMs));
@@ -157,8 +149,6 @@ export class AnomalyRowComponent {
   );
   protected readonly ackLabel = computed(
     () =>
-      `Acknowledge ${this.severityLabel().toLowerCase()} anomaly${
-        this.metricName() ? ` on ${this.metricName()}` : ''
-      }, ${this.relative()}`,
+      `Acknowledge ${this.severityLabel().toLowerCase()} anomaly on ${this.anomaly().metricName}, ${this.relative()}`,
   );
 }

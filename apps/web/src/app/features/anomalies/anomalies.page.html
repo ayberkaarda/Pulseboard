@@ -111,11 +111,7 @@
     } @else {
       <div role="list" class="pb-list" aria-label="Anomalies">
         @for (anomaly of feed.items(); track anomaly.id) {
-          <app-anomaly-row
-            [anomaly]="anomaly"
-            [metricName]="metricName(anomaly.metricId)"
-            [serviceName]="serviceName(anomaly.metricId)"
-          />
+          <app-anomaly-row [anomaly]="anomaly" />
         }
       </div>
       <nav class="pager" aria-label="Pagination">

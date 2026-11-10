@@ -60,18 +60,6 @@ export class AnomaliesPage {
     return serviceId === null ? [] : (this.catalog.metrics()[serviceId]?.items ?? []);
   });
 
-  /** metric id to its name and its service's name, for the rows. */
-  private readonly names = computed(() => {
-    const services = new Map(this.catalog.services().items.map((s) => [s.id, s.name]));
-    const index = new Map<string, { metric: string; service: string | undefined }>();
-    for (const [serviceId, list] of Object.entries(this.catalog.metrics())) {
-      for (const metric of list.items) {
-        index.set(metric.id, { metric: metric.name, service: services.get(serviceId) });
-      }
-    }
-    return index;
-  });
-
   protected readonly pageLabel = computed(() => {
     const pages = Math.max(this.feed.totalPages(), 1);
     return `Page ${this.feed.page() + 1} of ${pages}`;
@@ -86,23 +74,13 @@ export class AnomaliesPage {
     if (this.catalog.services().status === 'idle') {
       this.catalog.loadServices();
     }
-    // Rows show metric names; ask only for the services that appear in the list or the filter.
+    // The filter bar lists the metrics of the chosen service.
     effect(() => {
-      const wanted = new Set(this.feed.items().map((item) => item.serviceId));
       const chosen = this.feed.filters().serviceId;
       if (chosen !== null) {
-        wanted.add(chosen);
+        this.catalog.ensureMetrics([chosen]);
       }
-      this.catalog.ensureMetrics([...wanted]);
     });
-  }
-
-  protected metricName(metricId: string): string | undefined {
-    return this.names().get(metricId)?.metric;
-  }
-
-  protected serviceName(metricId: string): string | undefined {
-    return this.names().get(metricId)?.service;
   }
 
   protected onSeverity(value: string): void {
