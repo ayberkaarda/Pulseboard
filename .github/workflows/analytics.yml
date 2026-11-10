@@ -43,3 +43,10 @@ jobs:
         run: |
           uv run python -m pulseboard_analytics.openapi_export "$RUNNER_TEMP/analytics.openapi.yaml"
           diff -u ../../contracts/analytics.openapi.yaml "$RUNNER_TEMP/analytics.openapi.yaml"
+
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image (smoke, no push)
+        run: docker build --pull --tag pulseboard-analytics:ci services/analytics
