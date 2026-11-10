@@ -3,6 +3,47 @@ info:
   title: Pulseboard Analytics
   version: 0.1.0
 paths:
+  /internal/v1/score:
+    post:
+      tags:
+      - internal
+      summary: Score Metric
+      description: Score one metric over its last 24 hours, store new anomalies and
+        notify api-core.
+      operationId: score_metric_internal_v1_score_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              properties:
+                metricId:
+                  type: string
+                  format: uuid
+                  title: Metricid
+              additionalProperties: false
+              type: object
+              required:
+              - metricId
+              title: ScoreRequest
+              description: Body of ``POST /internal/v1/score``.
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScoreResponse'
+        '401':
+          description: Missing or invalid X-Internal-Signature
+        '404':
+          description: Unknown metric
+        '413':
+          description: Request body too large
+        '422':
+          description: Malformed request body
+      security:
+      - InternalHmac: []
   /health:
     get:
       tags:
@@ -19,6 +60,49 @@ paths:
                 $ref: '#/components/schemas/HealthResponse'
 components:
   schemas:
+    Detector:
+      type: string
+      enum:
+      - ZSCORE
+      - ISOLATION_FOREST
+      title: Detector
+      description: Detector identifiers as stored in ``anomaly.detector``.
+    DetectorResult:
+      properties:
+        detector:
+          $ref: '#/components/schemas/Detector'
+        window_start:
+          type: string
+          format: date-time
+          title: Window Start
+        window_end:
+          type: string
+          format: date-time
+          title: Window End
+        score:
+          type: number
+          maximum: 1.0
+          minimum: 0.0
+          title: Score
+        severity:
+          $ref: '#/components/schemas/Severity'
+        details:
+          additionalProperties:
+            anyOf:
+            - type: number
+            - type: integer
+            - type: string
+          type: object
+          title: Details
+      type: object
+      required:
+      - detector
+      - window_start
+      - window_end
+      - score
+      - severity
+      title: DetectorResult
+      description: One anomalous window reported by a detector.
     HealthResponse:
       properties:
         status:
@@ -34,3 +118,33 @@ components:
       - version
       title: HealthResponse
       description: Service liveness and installed package version.
+    ScoreResponse:
+      properties:
+        results:
+          items:
+            $ref: '#/components/schemas/DetectorResult'
+          type: array
+          title: Results
+        inserted:
+          type: integer
+          title: Inserted
+      type: object
+      required:
+      - results
+      - inserted
+      title: ScoreResponse
+      description: Detector output for one metric and the number of newly stored anomalies.
+    Severity:
+      type: string
+      enum:
+      - LOW
+      - MEDIUM
+      - HIGH
+      title: Severity
+      description: Severity levels as stored in ``anomaly.severity``.
+  securitySchemes:
+    InternalHmac:
+      type: apiKey
+      in: header
+      name: X-Internal-Signature
+      description: Lowercase hex HMAC-SHA256 of the raw request body, keyed with INTERNAL_SHARED_SECRET.
