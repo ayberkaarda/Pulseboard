@@ -54,6 +54,23 @@ class RedisTokenBucketRateLimiterIntegrationTest extends IntegrationTest {
     }
 
     @Test
+    void aRefundedTokenCanBeTakenAgainButNeverExceedsCapacity() {
+        String subject = UUID.randomUUID().toString();
+        RateLimitPolicy policy = new RateLimitPolicy(2, Duration.ofHours(1));
+        rateLimiter.tryAcquire("test", subject, policy);
+        rateLimiter.tryAcquire("test", subject, policy);
+        assertThat(rateLimiter.tryAcquire("test", subject, policy).allowed()).isFalse();
+
+        rateLimiter.refund("test", subject, policy);
+        rateLimiter.refund("test", subject, policy);
+        rateLimiter.refund("test", subject, policy);
+
+        assertThat(rateLimiter.tryAcquire("test", subject, policy).allowed()).isTrue();
+        assertThat(rateLimiter.tryAcquire("test", subject, policy).allowed()).isTrue();
+        assertThat(rateLimiter.tryAcquire("test", subject, policy).allowed()).isFalse();
+    }
+
+    @Test
     void tokensRefillOverTime() throws InterruptedException {
         String subject = UUID.randomUUID().toString();
         RateLimitPolicy policy = new RateLimitPolicy(2, Duration.ofMillis(400));

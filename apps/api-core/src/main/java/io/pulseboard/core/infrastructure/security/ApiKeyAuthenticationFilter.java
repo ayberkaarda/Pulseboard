@@ -31,9 +31,10 @@ import org.springframework.web.servlet.HandlerExceptionResolver;
  * resolved through trusted proxies only, and hashed):
  * <ol>
  *   <li>{@code apikey-client}: every request with the header takes a token;</li>
- *   <li>{@code apikey-invalid}: only checked here; a failed authentication takes a token afterwards. Once it is
- *   empty, every key from that client is rejected with 429 without a lookup, so guessing keys or replaying a
- *   revoked key cannot drive unbounded Redis and database work.</li>
+ *   <li>{@code apikey-invalid}: a token is reserved before the lookup and given back when the key turns out to
+ *   be valid, so failures are counted atomically even for parallel requests. Once it is empty,
+ *   every key from that client is rejected with 429 without a lookup, so guessing keys or replaying a revoked
+ *   key cannot drive unbounded Redis and database work.</li>
  * </ol>
  * Throttled requests get 429 with {@code Retry-After}; an unreachable rate-limit store fails closed (503).
  */
@@ -86,11 +87,12 @@ public class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
         Optional<ApiKeyService.AuthenticatedApiKey> authenticated;
         try {
             rateLimiter.acquireOrThrow(ApiKeyClientPolicy.CLIENT_NAMESPACE, client, clientPolicy.perClient());
-            rateLimiter.checkOrThrow(ApiKeyClientPolicy.INVALID_NAMESPACE, client, clientPolicy.invalidPerClient());
+            // The token for a possible failure is reserved before the lookup, so parallel lookups cannot all pass
+            // the check before the first failure is counted; a successful authentication gives it back.
+            rateLimiter.acquireOrThrow(ApiKeyClientPolicy.INVALID_NAMESPACE, client, clientPolicy.invalidPerClient());
             authenticated = apiKeyService.authenticate(presentedKey.trim());
-            if (authenticated.isEmpty()) {
-                rateLimiter.tryAcquire(ApiKeyClientPolicy.INVALID_NAMESPACE, client,
-                        clientPolicy.invalidPerClient());
+            if (authenticated.isPresent()) {
+                rateLimiter.refund(ApiKeyClientPolicy.INVALID_NAMESPACE, client, clientPolicy.invalidPerClient());
             }
         } catch (RateLimitExceededException | RateLimiterUnavailableException ex) {
             securityContextHolderStrategy.clearContext();

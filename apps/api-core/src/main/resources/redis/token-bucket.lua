@@ -2,7 +2,8 @@
 -- KEYS[1]  bucket key (hash with fields "tokens" and "ts")
 -- ARGV[1]  capacity (tokens)
 -- ARGV[2]  refill period in milliseconds (time to refill a full bucket)
--- ARGV[3]  tokens requested; 0 only checks whether one token is available and consumes nothing
+-- ARGV[3]  tokens requested; 0 only checks whether one token is available and consumes nothing;
+--          a negative value returns that many tokens to the bucket (never above capacity)
 -- Returns { allowed (0|1), retry_after_ms }.
 -- Time comes from the Redis server, so every api-core instance shares one clock.
 
@@ -28,7 +29,10 @@ tokens = math.min(capacity, tokens + elapsed_ms * rate_per_ms)
 
 local allowed = 0
 local retry_after_ms = 0
-if tokens >= needed then
+if requested < 0 then
+    tokens = math.min(capacity, tokens - requested)
+    allowed = 1
+elseif tokens >= needed then
     tokens = tokens - requested
     allowed = 1
 else

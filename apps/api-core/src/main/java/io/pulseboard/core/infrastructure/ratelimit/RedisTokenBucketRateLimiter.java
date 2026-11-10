@@ -41,6 +41,11 @@ public class RedisTokenBucketRateLimiter implements RateLimiter {
         return run(namespace, subject, policy, "0");
     }
 
+    @Override
+    public void refund(String namespace, String subject, RateLimitPolicy policy) {
+        run(namespace, subject, policy, "-1");
+    }
+
     private Decision run(String namespace, String subject, RateLimitPolicy policy, String requestedTokens) {
         if (namespace == null || namespace.isBlank() || subject == null || subject.isBlank()
                 || subject.length() > MAX_SUBJECT_LENGTH) {

@@ -23,6 +23,14 @@ public interface RateLimiter {
      */
     Decision check(String namespace, String subject, RateLimitPolicy policy);
 
+    /**
+     * Returns one token to the bucket, up to its capacity. Used to give back a token that was reserved before the
+     * outcome of the guarded work was known.
+     *
+     * @throws RateLimiterUnavailableException when the backing store cannot be reached (callers fail closed)
+     */
+    void refund(String namespace, String subject, RateLimitPolicy policy);
+
     /** Throws {@link RateLimitExceededException} when {@link #check} finds the bucket empty; consumes nothing. */
     default void checkOrThrow(String namespace, String subject, RateLimitPolicy policy) {
         Decision decision = check(namespace, subject, policy);
