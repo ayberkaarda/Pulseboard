@@ -47,9 +47,18 @@ Routes are lazy and standalone: `/login`, `/register`, `/app/overview`, `/app/se
   `ServiceHealthStore` (unacknowledged anomalies of the last hour for the overview tiles, indexed by service id),
   `MetricsStore` (points and anomalies of one metric and range; the step is chosen so a query never exceeds 2000 buckets;
   a new range cancels the old request). They share `AnomalyBus`, through which stream events, optimistic acknowledgements and
-  rollbacks reach every store.
+  rollbacks reach every store. A REST answer never overwrites what is newer: each store keeps a bounded ledger of
+  acknowledged ids (an id is never reopened by an older snapshot or a late open event; only a rollback lifts it) and
+  buffers the live changes that arrive while a request is in flight, then applies them on top of the snapshot.
+  The metric page reads the metric by id (`GET /api/v1/metrics/{id}`; the old `?service=` parameter is ignored), takes the
+  names of anomalies from the anomalies themselves, honours both bounds of a custom range for live events and re-reads
+  its anomalies after a reconnect. Chart rows for buckets the API omits are filled with nulls so gaps show as gaps.
 - **Health on the overview** follows the product spec: no unacknowledged anomaly in the last hour is healthy (circle), LOW or MEDIUM
-  is degraded (triangle), HIGH is down (square); a service with no metrics, or whose anomalies could not be read, shows "No data".
+  is degraded (triangle), HIGH is down (square); a service with no metrics, or whose anomalies could not be read, shows "No data". A service whose newest sample
+  (`lastPointAt`) is older than 15 minutes (`STALE_AFTER_MS`) and has no open anomaly is "Stale" (clock ring), never healthy;
+  when more than 500 anomalies match the hour, services without a loaded anomaly show "No data" instead of healthy.
+  A request that got a 401 is replayed after a refresh only while the session identity (logout, another sign-in) is
+  unchanged; otherwise it fails with a cancelled error and is never sent with another person's token.
 - **Chart.** ECharts is imported only by `metric-chart.component.ts` through a dynamic import (its own chunk, loaded on the metric page).
   `chart-options.ts` is a pure function from data and design tokens to the option; tokens are resolved in the browser
   (`chart-tokens.ts`) and the option is rebuilt when the theme or the motion preference changes. The chart is `role="img"` with a

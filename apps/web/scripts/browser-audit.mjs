@@ -7,12 +7,18 @@
 // produced anomalies, then scans /login, /register, /app/overview, /app/anomalies and
 // /app/metrics/:id in the light and the dark colour scheme. The exit code is 1 when axe reports a
 // violation. System Chrome is used (CHROME_CHANNEL, default "chrome").
+//
+// VIEWPORT_WIDTH (default 1280) sets the browser width, so the narrow layout can be scanned with 390.
+// SHOT_DIR, when set, receives a full page screenshot per scan, named SHOT_PREFIX-scheme-page.png.
 import { AxeBuilder } from '@axe-core/playwright';
 import { chromium } from 'playwright-core';
 
 const BASE = process.env.BASE ?? 'http://localhost:8081';
 const CHANNEL = process.env.CHROME_CHANNEL ?? 'chrome';
 const DEADLINE_MS = Number(process.env.ANOMALY_DEADLINE_MS ?? 150_000);
+const WIDTH = Number(process.env.VIEWPORT_WIDTH ?? 1280);
+const SHOT_DIR = process.env.SHOT_DIR;
+const SHOT_PREFIX = process.env.SHOT_PREFIX ?? 'audit';
 const POINTS = 300;
 const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
 
@@ -89,6 +95,13 @@ async function scan(page, name, scheme, results) {
   const axe = await new AxeBuilder({ page }).withTags(TAGS).analyze();
   const label = `${name} (${scheme})`;
   results.push({ label, violations: axe.violations, passes: axe.passes.length });
+  if (SHOT_DIR) {
+    const slug = name.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '');
+    await page.screenshot({
+      path: `${SHOT_DIR}/${SHOT_PREFIX}-${scheme}-${slug}.png`,
+      fullPage: true,
+    });
+  }
   console.log(
     `${axe.violations.length === 0 ? 'ok  ' : 'FAIL'} ${label}: ${axe.violations.length} violations, ${axe.passes.length} rules passed`,
   );
@@ -104,7 +117,7 @@ const results = [];
 try {
   for (const scheme of ['light', 'dark']) {
     const context = await browser.newContext({
-      viewport: { width: 1280, height: 900 },
+      viewport: { width: WIDTH, height: 900 },
       colorScheme: scheme,
     });
     const page = await context.newPage();
@@ -135,7 +148,7 @@ try {
     await page.getByRole('list', { name: 'Anomalies', exact: true }).waitFor();
     await scan(page, '/app/anomalies', scheme, results);
 
-    await page.goto(`${BASE}/app/metrics/${seeded.metricId}?service=${seeded.serviceId}`);
+    await page.goto(`${BASE}/app/metrics/${seeded.metricId}`);
     await page.locator('canvas').first().waitFor();
     await page.waitForTimeout(600);
     await scan(page, '/app/metrics/:id', scheme, results);
