@@ -3,7 +3,7 @@ info:
   description: "Identity, tenancy, metric ingestion and queries, anomalies and their\
     \ live stream. Errors are RFC 9457 problem details (application/problem+json)."
   title: Pulseboard api-core
-  version: 0.3.0
+  version: 0.4.0
 servers:
 - description: Same origin
   url: /
@@ -619,14 +619,30 @@ paths:
       description: "Server-sent events (`text/event-stream`) for the caller's tenant\
         \ only. Each anomaly is one event named `anomaly` whose `id` is the anomaly\
         \ id and whose data is the Anomaly JSON document. A comment line `: ping`\
-        \ is sent every 30 seconds (configurable) while idle. Authenticated with the\
-        \ bearer access token only (a browser EventSource cannot set that header;\
-        \ use a fetch based client). The stream ends when the access token expires\
-        \ or after at most 30 minutes (configurable); reconnect with a fresh token.\
-        \ Events published while disconnected are not replayed: read GET /api/v1/anomalies\
-        \ after reconnecting. Limited per tenant and per instance (defaults 10 and\
-        \ 500)."
+        \ is sent every 30 seconds (configurable) while idle. Authenticate with exactly\
+        \ one of: the bearer access token, or a one-time `ticket` query parameter\
+        \ from POST /api/v1/stream/ticket (for a browser EventSource, which cannot\
+        \ set the header). A request with both, or with an invalid, expired, malformed\
+        \ or already used ticket, is answered with the same 401; a ticket is used\
+        \ up even when the request is then refused (for example with 429), so request\
+        \ a new one for every connection attempt. Access tokens in the query string\
+        \ are not accepted. The stream ends when the access token (the one that requested\
+        \ the ticket, for ticket streams) expires or after at most 30 minutes (configurable);\
+        \ reconnect with a fresh token or ticket. Events published while disconnected\
+        \ are not replayed: read GET /api/v1/anomalies after reconnecting. Limited\
+        \ per tenant and per instance (defaults 10 and 500)."
       operationId: stream
+      parameters:
+      - description: "One-time stream ticket from POST /api/v1/stream/ticket, as an\
+          \ alternative to the Authorization header. Consumed by the request. Never\
+          \ log or store it."
+        in: query
+        name: ticket
+        required: false
+        schema:
+          type: string
+          maxLength: 43
+          minLength: 43
       responses:
         "200":
           content:
@@ -639,7 +655,8 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/Problem"
-          description: Missing or invalid access token
+          description: "Missing or invalid credentials, both credentials at once,\
+            \ or an invalid ticket"
         "403":
           content:
             application/problem+json:
@@ -678,7 +695,73 @@ paths:
               style: simple
       security:
       - bearerAuth: []
+      - streamTicket: []
       summary: Stream new anomalies
+      tags:
+      - Anomalies
+  /api/v1/stream/ticket:
+    post:
+      description: "Returns a one-time ticket for GET /api/v1/stream/anomalies?ticket=...,\
+        \ for clients that cannot send an Authorization header (a browser EventSource).\
+        \ The ticket is valid for 30 seconds (configurable) or until the access token\
+        \ expires, whichever is sooner, is bound to the caller's tenant and user,\
+        \ and can be used exactly once. The stream opened with it ends when the access\
+        \ token that requested the ticket expires. Only the SHA-256 digest of the\
+        \ ticket is stored. Limited to 30 tickets per user per minute. Requires a\
+        \ user access token; API keys are refused. The response is never cached."
+      operationId: issueStreamTicket
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StreamTicketResponse"
+          description: Ticket issued
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Missing or invalid access token
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Not authenticated as a user (for example an API key)
+        "429":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Too many tickets requested
+          headers:
+            Retry-After:
+              description: Seconds until a retry can succeed
+              schema:
+                type: integer
+              style: simple
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Unexpected error
+        "503":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: The ticket store or rate limiter is unavailable (fails closed)
+          headers:
+            Retry-After:
+              description: Seconds until a retry can succeed
+              schema:
+                type: integer
+              style: simple
+      security:
+      - bearerAuth: []
+      summary: Issue a stream ticket
       tags:
       - Anomalies
   /internal/v1/anomalies/notify:
@@ -1217,6 +1300,19 @@ components:
           format: uuid
         name:
           type: string
+    StreamTicketResponse:
+      type: object
+      properties:
+        expiresInSeconds:
+          type: integer
+          format: int64
+          description: Seconds the ticket can still be used
+          example: 30
+        ticket:
+          type: string
+          description: "Opaque one-time value for the `ticket` query parameter of\
+            \ the stream endpoint. 256 random bits, URL-safe base64 without padding.\
+            \ Shown once; never log or store it."
     TokenResponse:
       type: object
       properties:
@@ -1257,4 +1353,10 @@ components:
         \ signatures are answered with 401."
       in: header
       name: X-Internal-Signature
+      type: apiKey
+    streamTicket:
+      description: "GET /api/v1/stream/anomalies only. One-time ticket from POST /api/v1/stream/ticket,\
+        \ an alternative to the bearer token; sending both is refused."
+      in: query
+      name: ticket
       type: apiKey
