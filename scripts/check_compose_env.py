@@ -27,7 +27,10 @@ SECRETS = {
 
 # (service, variable, default, override)
 SETTINGS = [
+    ("analytics", "SCORE_LOCK_TTL_MS", "55000", "40000"),
     ("analytics", "SCORE_DEADLINE_SECONDS", "50", "30"),
+    ("analytics", "SCORE_LEASE_MARGIN_SECONDS", "5", "3"),
+    ("analytics", "METRIC_LOCK_TIMEOUT_SECONDS", "10", "4"),
     ("analytics", "FOREST_CACHE_MAX", "256", "64"),
     ("analytics", "VERIFY_DB_ROLES", "true", "false"),
     ("api-core", "ANOMALY_STREAM_MAX_PER_TENANT", "10", "3"),
