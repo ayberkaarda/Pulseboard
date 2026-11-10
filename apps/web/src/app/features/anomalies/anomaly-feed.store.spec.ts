@@ -7,7 +7,7 @@ import { errorInterceptor } from '../../core/http/interceptors';
 import { SessionLifecycle } from '../../core/session/session-lifecycle';
 import { SessionStore } from '../../core/session/session.store';
 import { AnomalyBus } from './anomaly-bus';
-import { AnomalyFeedStore, MAX_ITEMS, PAGE_SIZE } from './anomaly-feed.store';
+import { AnomalyFeedStore, MAX_ITEMS, MAX_PENDING, PAGE_SIZE } from './anomaly-feed.store';
 import { SourceLog, anomaly, fakeSession, rawAnomaly } from './anomaly-testing';
 import {
   AnomalyStreamService,
@@ -285,6 +285,116 @@ describe('AnomalyFeedStore', () => {
 
       expect(store.items()).toEqual([]);
       expect(store.status()).toBe('idle');
+    });
+  });
+
+  describe('snapshot against live state', () => {
+    const ACK = { acknowledgedAt: '2026-05-01T12:30:00Z', acknowledgedBy: 'u-1' };
+
+    it('keeps an acknowledgement made while the snapshot was in flight', () => {
+      const { store, http, bus } = setup();
+      const raw = rawAnomaly();
+      store.load();
+      const snapshot = listRequest(http);
+
+      bus.publish(anomaly({ ...raw, ...ACK }), 'update');
+      snapshot.flush(page([raw]));
+
+      expect(store.items()[0].acknowledgedAt).toBe(ACK.acknowledgedAt);
+    });
+
+    it('does not reopen an acknowledged id when an older snapshot or a late open event arrives', () => {
+      const { store, http, bus } = setup();
+      const raw = rawAnomaly();
+      store.load();
+      listRequest(http).flush(page([raw]));
+      bus.publish(anomaly({ ...raw, ...ACK }), 'update');
+
+      store.refresh();
+      listRequest(http).flush(page([raw]));
+      expect(store.items()[0].acknowledgedAt).not.toBeNull();
+
+      bus.publish(anomaly(raw), 'event');
+      expect(store.items()[0].acknowledgedAt).not.toBeNull();
+    });
+
+    it('lifts the tombstone when the acknowledgement is rolled back', () => {
+      const { store, http, bus } = setup();
+      const raw = rawAnomaly();
+      store.load();
+      listRequest(http).flush(page([raw]));
+      bus.publish(anomaly({ ...raw, ...ACK }), 'update');
+      bus.publish(anomaly(raw), 'rollback');
+
+      store.refresh();
+      listRequest(http).flush(page([raw]));
+      expect(store.items()[0].acknowledgedAt).toBeNull();
+    });
+
+    it('keeps a live event that arrived while an older snapshot was loading', () => {
+      const { store, http, bus } = setup();
+      store.load();
+      const snapshot = listRequest(http);
+
+      const live = rawAnomaly({ severity: 'HIGH', windowStart: '2026-05-01T13:00:00Z' });
+      bus.publish(anomaly(live), 'event');
+      snapshot.flush(page([rawAnomaly()]));
+
+      expect(store.items().map((item) => item.id)).toContain(live.id);
+      expect(store.items()).toHaveLength(2);
+      expect(store.totalItems()).toBe(2);
+    });
+
+    it('drops a row from an open list when it is acknowledged and puts it back on rollback', () => {
+      const { store, http, bus } = setup();
+      const raw = rawAnomaly();
+      store.setFilters({ status: 'open' });
+      listRequest(http).flush(page([raw]));
+
+      bus.publish(anomaly({ ...raw, ...ACK }), 'update');
+      expect(store.items()).toEqual([]);
+      expect(store.totalItems()).toBe(0);
+
+      bus.publish(anomaly(raw), 'rollback');
+      expect(store.items()).toHaveLength(1);
+      expect(store.totalItems()).toBe(1);
+    });
+
+    it('removes acknowledged rows from an open snapshot read after the acknowledgement', () => {
+      const { store, http, bus } = setup();
+      const raw = rawAnomaly();
+      const other = rawAnomaly();
+      store.setFilters({ status: 'open' });
+      const snapshot = listRequest(http);
+      bus.publish(anomaly({ ...raw, ...ACK }), 'update');
+      snapshot.flush(page([raw, other]));
+
+      expect(store.items().map((item) => item.id)).toEqual([other.id]);
+      expect(store.totalItems()).toBe(1);
+    });
+
+    it('grows the page count when a live event takes a full page past its size', () => {
+      const { store, http, bus } = setup();
+      const rows = Array.from({ length: PAGE_SIZE }, () => rawAnomaly());
+      store.load();
+      listRequest(http).flush(page(rows, { totalPages: 1 }));
+      expect(store.totalPages()).toBe(1);
+
+      bus.publish(anomaly(), 'event');
+      expect(store.totalItems()).toBe(PAGE_SIZE + 1);
+      expect(store.totalPages()).toBe(2);
+    });
+
+    it('bounds the ids remembered for other pages', () => {
+      const { store, http, bus } = setup();
+      store.load();
+      listRequest(http).flush(page([], { totalPages: 3 }));
+      store.setPage(1);
+      listRequest(http).flush({ ...page([], { totalPages: 3 }), page: 1 });
+      for (let i = 0; i < MAX_PENDING + 50; i += 1) {
+        bus.publish(anomaly(), 'event');
+      }
+      expect(store.pendingIds().length).toBe(MAX_PENDING);
     });
   });
 });

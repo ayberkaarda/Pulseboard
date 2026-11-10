@@ -10,7 +10,13 @@ import { ApiProblem, isApiError } from '../../api/problem';
 import { quietContext } from '../../core/http/api-request';
 import { SessionLifecycle } from '../../core/session/session-lifecycle';
 import { Severity } from '../../shared/signal/signal.model';
-import { AnomalyBus, mergeAnomaly } from './anomaly-bus';
+import {
+  AckLedger,
+  AnomalyBus,
+  AnomalyChangeKind,
+  ChangeBuffer,
+  mergeAnomaly,
+} from './anomaly-bus';
 import { AnomalyStreamService } from './anomaly-stream.service';
 
 export type AcknowledgedFilter = 'all' | 'open' | 'acknowledged';
@@ -33,6 +39,12 @@ export const NO_FILTERS: AnomalyFilters = {
 export const PAGE_SIZE = 25;
 /** The in-memory list never grows past this, however many live events arrive. */
 export const MAX_ITEMS = 500;
+/** Live events of other pages that are remembered; the oldest are forgotten first. */
+export const MAX_PENDING = 500;
+
+function pagesFor(totalItems: number): number {
+  return Math.ceil(totalItems / PAGE_SIZE);
+}
 
 type FeedStatus = 'idle' | 'loading' | 'loaded' | 'error';
 
@@ -114,10 +126,58 @@ export const AnomalyFeedStore = signalStore(
   withMethods((store) => {
     const api = inject(ApiClient);
     let epoch = 0;
+    const ledger = new AckLedger();
+    const arrivals = new ChangeBuffer();
+
+    /** Applies a change from the bus to the list. */
+    function apply(change: Anomaly, kind: AnomalyChangeKind): void {
+      arrivals.push({ anomaly: change, kind });
+      const anomaly = ledger.observe({ anomaly: change, kind });
+      const filters = store.filters();
+      const known = store.items().find((item) => item.id === anomaly.id);
+      if (known !== undefined) {
+        const merged = mergeAnomaly(known, { anomaly, kind });
+        if (!matchesFilters(merged, filters)) {
+          // An acknowledgement can move a row out of an "open" list (and a rollback back in).
+          const totalItems = Math.max(0, store.totalItems() - 1);
+          patchState(store, {
+            items: store.items().filter((item) => item.id !== merged.id),
+            totalItems,
+            totalPages: pagesFor(totalItems),
+          });
+          return;
+        }
+        patchState(store, {
+          items: store.items().map((item) => (item.id === merged.id ? merged : item)),
+        });
+        return;
+      }
+      if (kind === 'update' || store.status() === 'idle' || !matchesFilters(anomaly, filters)) {
+        return;
+      }
+      if (store.page() === 0) {
+        const totalItems = store.totalItems() + 1;
+        patchState(store, {
+          items: insertAnomaly(store.items(), anomaly),
+          totalItems,
+          totalPages: pagesFor(totalItems),
+          liveCount: kind === 'event' ? store.liveCount() + 1 : store.liveCount(),
+        });
+      } else if (kind === 'event' && !store.pendingIds().includes(anomaly.id)) {
+        const totalItems = store.totalItems() + 1;
+        patchState(store, {
+          pendingIds: [...store.pendingIds(), anomaly.id].slice(-MAX_PENDING),
+          totalItems,
+          totalPages: pagesFor(totalItems),
+          liveCount: store.liveCount() + 1,
+        });
+      }
+    }
 
     const fetchPage = rxMethod<LoadRequest>(
       pipe(
         tap((request) => {
+          arrivals.begin();
           if (!request.silent || store.status() === 'idle') {
             patchState(store, { status: 'loading', problem: null });
           }
@@ -137,14 +197,23 @@ export const AnomalyFeedStore = signalStore(
               context: quietContext(),
             })
             .pipe(
-              map((body): Partial<FeedState> => ({
-                status: 'loaded',
-                items: body.items.map(toAnomaly).sort(compareAnomalies),
-                totalItems: body.totalItems ?? 0,
-                totalPages: body.totalPages ?? 0,
-                problem: null,
-                pendingIds: [],
-              })),
+              map((body): Partial<FeedState> => {
+                // The snapshot can predate an acknowledgement made while it was in flight.
+                const rows = body.items.map(toAnomaly).map((item) => ledger.overlay(item));
+                const items = rows
+                  .filter((item) => matchesFilters(item, filters))
+                  .sort(compareAnomalies);
+                const dropped = rows.length - items.length;
+                const totalItems = Math.max(0, (body.totalItems ?? 0) - dropped);
+                return {
+                  status: 'loaded',
+                  items,
+                  totalItems,
+                  totalPages: dropped === 0 ? (body.totalPages ?? 0) : pagesFor(totalItems),
+                  problem: null,
+                  pendingIds: [],
+                };
+              }),
               catchError((error: unknown) =>
                 of<Partial<FeedState>>({
                   status: 'error',
@@ -152,8 +221,16 @@ export const AnomalyFeedStore = signalStore(
                 }),
               ),
               tap((patch) => {
-                if (startedIn === epoch) {
-                  patchState(store, patch);
+                if (startedIn !== epoch) {
+                  return;
+                }
+                patchState(store, patch);
+                // Changes that arrived during the request go on top of the snapshot.
+                const arrived = arrivals.end();
+                if (patch.status === 'loaded') {
+                  for (const change of arrived) {
+                    apply(change.anomaly, change.kind);
+                  }
                 }
               }),
             ),
@@ -166,6 +243,8 @@ export const AnomalyFeedStore = signalStore(
     };
 
     return {
+      apply,
+
       load(): void {
         patchState(store, { liveCount: 0 });
         reload(false);
@@ -195,36 +274,6 @@ export const AnomalyFeedStore = signalStore(
         reload(false);
       },
 
-      /** Applies a change from the bus to the list. */
-      apply(anomaly: Anomaly, kind: 'event' | 'update' | 'rollback'): void {
-        const known = store.items().find((item) => item.id === anomaly.id);
-        if (known !== undefined) {
-          const merged = mergeAnomaly(known, { anomaly, kind });
-          patchState(store, {
-            items: store.items().map((item) => (item.id === merged.id ? merged : item)),
-          });
-          return;
-        }
-        if (kind !== 'event' || store.status() === 'idle') {
-          return;
-        }
-        if (!matchesFilters(anomaly, store.filters())) {
-          return;
-        }
-        if (store.page() === 0) {
-          patchState(store, {
-            items: insertAnomaly(store.items(), anomaly),
-            totalItems: store.totalItems() + 1,
-            liveCount: store.liveCount() + 1,
-          });
-        } else if (!store.pendingIds().includes(anomaly.id)) {
-          patchState(store, {
-            pendingIds: [...store.pendingIds(), anomaly.id],
-            liveCount: store.liveCount() + 1,
-          });
-        }
-      },
-
       /** Jumps to the first page, where the pending live events are. */
       showNewest(): void {
         patchState(store, { page: 0 });
@@ -233,6 +282,8 @@ export const AnomalyFeedStore = signalStore(
 
       reset(): void {
         epoch += 1;
+        ledger.clear();
+        arrivals.discard();
         patchState(store, INITIAL);
       },
     };
