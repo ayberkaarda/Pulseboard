@@ -12,7 +12,8 @@ import java.util.UUID;
 
 /**
  * One link of a rotating refresh-token chain. All tokens issued from one login share a {@code familyId}; a
- * token can be exchanged exactly once, after which it is revoked and points to its successor.
+ * token can be exchanged exactly once, after which it is revoked and points to its successor. Every token of a
+ * family carries the same {@code familyExpiresAt}: the session ends there no matter how often it was rotated.
  */
 @Entity
 @Table(name = "refresh_token")
@@ -41,6 +42,9 @@ public class RefreshToken {
     @Column(name = "expires_at", nullable = false, updatable = false)
     private Instant expiresAt;
 
+    @Column(name = "family_expires_at", nullable = false, updatable = false)
+    private Instant familyExpiresAt;
+
     @Column(name = "revoked_at")
     private Instant revokedAt;
 
@@ -51,7 +55,7 @@ public class RefreshToken {
     }
 
     public RefreshToken(TenantId tenantId, UUID userId, UUID familyId, String tokenHash, Instant issuedAt,
-            Instant expiresAt) {
+            Instant expiresAt, Instant familyExpiresAt) {
         this.id = UUID.randomUUID();
         this.tenantId = Objects.requireNonNull(tenantId, "tenantId");
         this.userId = Objects.requireNonNull(userId, "userId");
@@ -59,8 +63,12 @@ public class RefreshToken {
         this.tokenHash = Objects.requireNonNull(tokenHash, "tokenHash");
         this.issuedAt = Objects.requireNonNull(issuedAt, "issuedAt");
         this.expiresAt = Objects.requireNonNull(expiresAt, "expiresAt");
+        this.familyExpiresAt = Objects.requireNonNull(familyExpiresAt, "familyExpiresAt");
         if (!expiresAt.isAfter(issuedAt)) {
             throw new IllegalArgumentException("expiresAt must be after issuedAt");
+        }
+        if (expiresAt.isAfter(familyExpiresAt)) {
+            throw new IllegalArgumentException("expiresAt must not be after familyExpiresAt");
         }
     }
 
@@ -70,6 +78,11 @@ public class RefreshToken {
 
     public boolean isExpiredAt(Instant now) {
         return !expiresAt.isAfter(now);
+    }
+
+    /** True once the session this token belongs to is past its absolute lifetime, however often it was rotated. */
+    public boolean isFamilyExpiredAt(Instant now) {
+        return !familyExpiresAt.isAfter(now);
     }
 
     /** Marks this token as consumed and records the token that replaces it. */
@@ -111,6 +124,10 @@ public class RefreshToken {
 
     public Instant getExpiresAt() {
         return expiresAt;
+    }
+
+    public Instant getFamilyExpiresAt() {
+        return familyExpiresAt;
     }
 
     public Instant getRevokedAt() {

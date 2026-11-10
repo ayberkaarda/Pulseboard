@@ -37,7 +37,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  * <p>Refresh tokens are opaque random strings stored only as SHA-256 hashes. Each exchange revokes the
  * presented token and issues a successor in the same family. Presenting an already rotated token is treated
  * as theft: the whole family is revoked. All refresh operations of one user are serialized on the user row, so
- * a revocation can never miss a successor that a concurrent rotation is about to commit.
+ * a revocation can never miss a successor that a concurrent rotation is about to commit. A family also has an
+ * absolute lifetime from login; rotation never extends a token beyond it, and logout revokes the family.
  */
 @Service
 public class AuthService {
@@ -56,6 +57,7 @@ public class AuthService {
     private final AuthThrottlingPolicy throttlingPolicy;
     private final Clock clock;
     private final Duration refreshTokenTtl;
+    private final Duration refreshFamilyTtl;
     private final TransactionTemplate writeTransaction;
     private final TransactionTemplate readTransaction;
     private final String timingEqualizationHash;
@@ -64,7 +66,8 @@ public class AuthService {
             RefreshTokenRepository refreshTokenRepository, PasswordEncoder passwordEncoder,
             AccessTokenIssuer accessTokenIssuer, RateLimiter rateLimiter, AuthThrottlingPolicy throttlingPolicy,
             Clock clock, PlatformTransactionManager transactionManager,
-            @Value("${pulseboard.security.jwt.refresh-token-ttl}") Duration refreshTokenTtl) {
+            @Value("${pulseboard.security.jwt.refresh-token-ttl}") Duration refreshTokenTtl,
+            @Value("${pulseboard.security.jwt.refresh-family-ttl}") Duration refreshFamilyTtl) {
         this.tenantRepository = tenantRepository;
         this.userRepository = userRepository;
         this.refreshTokenRepository = refreshTokenRepository;
@@ -74,6 +77,7 @@ public class AuthService {
         this.throttlingPolicy = throttlingPolicy;
         this.clock = clock;
         this.refreshTokenTtl = refreshTokenTtl;
+        this.refreshFamilyTtl = refreshFamilyTtl;
         this.writeTransaction = new TransactionTemplate(transactionManager);
         this.readTransaction = new TransactionTemplate(transactionManager);
         this.readTransaction.setReadOnly(true);
@@ -136,23 +140,60 @@ public class AuthService {
                     current.getFamilyId(), current.getTenantId(), revoked);
             throw new AuthenticationFailedException(INVALID_REFRESH_TOKEN);
         }
+        if (current.isFamilyExpiredAt(now)) {
+            refreshTokenRepository.revokeFamily(current.getFamilyId(), current.getTenantId(), now);
+            LOG.info("Refresh family {} of tenant {} reached its absolute lifetime and was revoked",
+                    current.getFamilyId(), current.getTenantId());
+            throw new AuthenticationFailedException(INVALID_REFRESH_TOKEN);
+        }
         if (current.isExpiredAt(now)) {
             throw new AuthenticationFailedException(INVALID_REFRESH_TOKEN);
         }
 
         String rawSuccessor = SecureTokens.randomUrlSafe(REFRESH_TOKEN_BYTES);
+        Instant familyExpiresAt = current.getFamilyExpiresAt();
+        Instant successorExpiresAt = earlier(now.plus(refreshTokenTtl), familyExpiresAt);
         RefreshToken successor = new RefreshToken(user.getTenantId(), user.getId(), current.getFamilyId(),
-                SecureTokens.sha256Hex(rawSuccessor), now, now.plus(refreshTokenTtl));
+                SecureTokens.sha256Hex(rawSuccessor), now, successorExpiresAt, familyExpiresAt);
         current.rotateTo(successor, now);
         refreshTokenRepository.save(successor);
         refreshTokenRepository.save(current);
         return tokens(user, rawSuccessor, successor.getExpiresAt(), now);
     }
 
+    /**
+     * Ends the session of the presented refresh token by revoking its whole family. Idempotent and silent: an
+     * unknown, expired or already revoked token changes nothing and is indistinguishable to the caller. The
+     * family is resolved from the token itself, so a token can only ever end its own session, in its own tenant.
+     */
+    @Transactional
+    public void logout(String presentedToken) {
+        String tokenHash = SecureTokens.sha256Hex(presentedToken);
+        Optional<RefreshTokenOwner> owner = refreshTokenRepository.findOwnerByTokenHash(tokenHash);
+        if (owner.isEmpty()) {
+            return;
+        }
+        // Same serialization point as refresh, so a rotation in flight cannot commit a successor after this.
+        if (userRepository.findLockedByIdAndTenantId(owner.get().userId(), owner.get().tenantId()).isEmpty()) {
+            return;
+        }
+        refreshTokenRepository.findByTokenHash(tokenHash).ifPresent(token -> {
+            int revoked = refreshTokenRepository.revokeFamily(token.getFamilyId(), token.getTenantId(),
+                    clock.instant());
+            LOG.info("Logout revoked {} active token(s) of family {} of tenant {}", revoked, token.getFamilyId(),
+                    token.getTenantId());
+        });
+    }
+
+    private static Instant earlier(Instant a, Instant b) {
+        return a.isBefore(b) ? a : b;
+    }
+
     private AuthTokens issueTokens(User user, UUID familyId, Instant now) {
         String rawRefreshToken = SecureTokens.randomUrlSafe(REFRESH_TOKEN_BYTES);
         RefreshToken refreshToken = refreshTokenRepository.save(new RefreshToken(user.getTenantId(), user.getId(),
-                familyId, SecureTokens.sha256Hex(rawRefreshToken), now, now.plus(refreshTokenTtl)));
+                familyId, SecureTokens.sha256Hex(rawRefreshToken), now, now.plus(refreshTokenTtl),
+                now.plus(refreshFamilyTtl)));
         return tokens(user, rawRefreshToken, refreshToken.getExpiresAt(), now);
     }
 

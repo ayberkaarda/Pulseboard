@@ -25,7 +25,7 @@ public interface RefreshTokenRepository {
     Optional<RefreshToken> findByTokenHash(String tokenHash);
 
     /**
-     * Revokes every still-active token of a family (reuse detection).
+     * Revokes every still-active token of a family (reuse detection, logout, absolute expiry).
      *
      * @return number of tokens revoked
      */

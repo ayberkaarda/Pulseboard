@@ -14,7 +14,8 @@ public record JwtProperties(
         String issuer,
         String audience,
         Duration accessTokenTtl,
-        Duration refreshTokenTtl) {
+        Duration refreshTokenTtl,
+        Duration refreshFamilyTtl) {
 
     private static final int MIN_SECRET_BYTES = 32;
 
@@ -28,6 +29,11 @@ public record JwtProperties(
         requireText(audience, "audience");
         requirePositive(accessTokenTtl, "access-token-ttl");
         requirePositive(refreshTokenTtl, "refresh-token-ttl");
+        requirePositive(refreshFamilyTtl, "refresh-family-ttl");
+        if (refreshFamilyTtl.compareTo(refreshTokenTtl) < 0) {
+            throw new IllegalArgumentException(
+                    "pulseboard.security.jwt.refresh-family-ttl must not be shorter than refresh-token-ttl");
+        }
     }
 
     private static void requireText(String value, String name) {
@@ -46,6 +52,6 @@ public record JwtProperties(
     @Override
     public String toString() {
         return "JwtProperties[issuer=" + issuer + ", audience=" + audience + ", accessTokenTtl=" + accessTokenTtl
-                + ", refreshTokenTtl=" + refreshTokenTtl + "]";
+                + ", refreshTokenTtl=" + refreshTokenTtl + ", refreshFamilyTtl=" + refreshFamilyTtl + "]";
     }
 }

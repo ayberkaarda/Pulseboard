@@ -17,10 +17,13 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
+import org.springframework.security.oauth2.server.resource.web.BearerTokenResolver;
+import org.springframework.security.oauth2.server.resource.web.DefaultBearerTokenResolver;
 import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.intercept.AuthorizationFilter;
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
+import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.web.servlet.HandlerExceptionResolver;
 
 /**
@@ -65,7 +68,8 @@ public class SecurityConfiguration {
     private static final String[] AUTH_ENDPOINTS = {
         "/api/v1/auth/register",
         "/api/v1/auth/login",
-        "/api/v1/auth/refresh"
+        "/api/v1/auth/refresh",
+        "/api/v1/auth/logout"
     };
 
     @Bean
@@ -131,6 +135,9 @@ public class SecurityConfiguration {
                         .hasAnyRole(OWNER, ADMIN, VIEWER)
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(resourceServer -> resourceServer
+                        // A stale access token must not turn an anonymous auth call into a 401: logout in
+                        // particular exists to end sessions whose access token has expired.
+                        .bearerTokenResolver(authAwareBearerTokenResolver())
                         .jwt(jwt -> jwt.decoder(jwtDecoder).jwtAuthenticationConverter(jwtAuthenticationConverter()))
                         .authenticationEntryPoint(problemHandler)
                         .accessDeniedHandler(problemHandler))
@@ -155,5 +162,13 @@ public class SecurityConfiguration {
         JwtAuthenticationConverter converter = new JwtAuthenticationConverter();
         converter.setJwtGrantedAuthoritiesConverter(authorities);
         return converter;
+    }
+
+    /** Reads bearer tokens as usual, except on the anonymous authentication endpoints, where none is looked at. */
+    private static BearerTokenResolver authAwareBearerTokenResolver() {
+        DefaultBearerTokenResolver delegate = new DefaultBearerTokenResolver();
+        RequestMatcher authEndpoints = PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST,
+                "/api/v1/auth/**");
+        return request -> authEndpoints.matches(request) ? null : delegate.resolve(request);
     }
 }

@@ -95,6 +95,9 @@ pulseboard:
       audience: pulseboard-api
       access-token-ttl: 15m
       refresh-token-ttl: 7d
+      # Absolute session lifetime counted from login: rotation never extends a refresh token beyond it, and a
+      # refresh after it answers 401 and revokes the family. Must not be shorter than refresh-token-ttl.
+      refresh-family-ttl: ${REFRESH_FAMILY_TTL:30d}
   partitions:
     # Monthly metric_point partitions are kept this many months ahead of the current UTC month.
     months-ahead: ${METRIC_PARTITIONS_MONTHS_AHEAD:3}
@@ -102,7 +105,7 @@ pulseboard:
     cron: ${METRIC_PARTITIONS_CRON:0 15 0 * * *}
   rate-limit:
     auth:
-      # Register, login and refresh requests per client address (shared bucket): 30 per minute.
+      # Register, login, refresh and logout requests per client address (shared bucket): 30 per minute.
       client-capacity: ${AUTH_RATE_LIMIT_CLIENT_CAPACITY:30}
       client-refill-period: ${AUTH_RATE_LIMIT_CLIENT_PERIOD:1m}
       # Login attempts per tenant slug + email, checked before password hashing: 10 per 15 minutes.
