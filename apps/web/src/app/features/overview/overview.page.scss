@@ -1,18 +1,42 @@
+.summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--pb-space-3) var(--pb-space-6);
+  margin: 0 0 var(--pb-space-5);
+  padding: 0;
+  list-style: none;
+
+  li {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--pb-space-2);
+    color: var(--pb-ink-2);
+  }
+}
+
+.count {
+  color: var(--pb-ink);
+  font-size: var(--pb-text-xl);
+  font-weight: 600;
+}
+
 .services {
   display: grid;
-  gap: var(--pb-space-2);
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.service {
+.tile {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  align-items: center;
-  gap: var(--pb-space-5);
-  min-height: 64px;
-  padding: 0 var(--pb-space-5);
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-content: start;
+  gap: var(--pb-space-1) var(--pb-space-3);
+  height: 100%;
+  min-height: 132px;
+  padding: var(--pb-space-4);
   background: var(--pb-surface);
   border: 1px solid var(--pb-line);
   border-radius: var(--pb-radius-md);
@@ -23,40 +47,45 @@
   &:hover {
     background: var(--pb-wash-hover);
   }
+
+  &[data-health='down'] {
+    border-left: 2px solid var(--pb-health-down);
+  }
+
+  > * {
+    grid-column: 1 / -1;
+  }
 }
 
 .name {
+  grid-column: 1;
   overflow: hidden;
+  font-size: var(--pb-text-lg);
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .env {
+  grid-column: 2;
   color: var(--pb-ink-2);
   font-size: var(--pb-text-sm);
-  letter-spacing: 0.04em;
 }
 
-.health {
+.health,
+.detail {
   display: inline-flex;
   align-items: center;
   gap: var(--pb-space-2);
-  color: var(--pb-ink-2);
-  font-size: var(--pb-text-sm);
 }
 
-@media (max-width: 599.98px) {
-  .service {
-    grid-template-columns: minmax(0, 1fr) auto;
-    padding: var(--pb-space-3) var(--pb-space-4);
-  }
+.health {
+  margin-top: var(--pb-space-2);
+  font-weight: 560;
+}
 
-  .env {
-    grid-column: 2;
-  }
-
-  .health {
-    grid-column: 1 / -1;
-  }
+.detail,
+.when {
+  color: var(--pb-ink-2);
+  font-size: var(--pb-text-sm);
 }

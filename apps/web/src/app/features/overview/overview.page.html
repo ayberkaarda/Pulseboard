@@ -1,7 +1,9 @@
 <app-page-head
   title="Overview"
   summary="Every service on one board, sorted by what needs attention first."
-/>
+>
+  <app-connection-status />
+</app-page-head>
 
 @switch (store.services().status) {
   @case ('error') {
@@ -9,7 +11,7 @@
       <app-load-error
         heading="Could not load your services"
         [problem]="problem"
-        (retry)="store.loadServices()"
+        (retry)="reload()"
       />
     }
   }
@@ -17,19 +19,61 @@
     @if (store.services().items.length === 0) {
       <app-empty-state
         heading="No services reporting yet"
-        body="Services appear here after their first heartbeat. Each tile shows health, latency and open anomalies."
+        body="Create a service and send its first values. Each tile then shows its health and open anomalies."
       />
     } @else {
-      <ul class="services" aria-label="Services">
-        @for (service of store.services().items; track service.id) {
+      @if (healthStore.status() === 'error' && healthStore.problem(); as problem) {
+        <app-load-error
+          heading="Could not read recent anomalies"
+          [problem]="problem"
+          (retry)="healthStore.load()"
+        />
+      }
+      @if (healthStore.truncated()) {
+        <p class="pb-note">
+          More than 500 open anomalies in the last hour: counts below are lower bounds.
+        </p>
+      }
+      <ul class="summary" aria-label="Services by health">
+        @for (state of states; track state) {
           <li>
-            <a class="service" [routerLink]="['/app/services', service.id]">
-              <span class="name">{{ service.name }}</span>
-              <span class="env">{{ service.environment }}</span>
+            <app-health-glyph [state]="state" />
+            <span class="count pb-figures">{{ counts()[state] }}</span>
+            <span>{{ labels[state] }}</span>
+          </li>
+        }
+      </ul>
+      <ul class="services" aria-label="Services">
+        @for (tile of tiles(); track tile.service.id) {
+          <li>
+            <a
+              class="tile"
+              [attr.data-health]="tile.health.state"
+              [routerLink]="['/app/services', tile.service.id]"
+            >
+              <span class="name">{{ tile.service.name }}</span>
+              <span class="env">{{ tile.service.environment }}</span>
               <span class="health">
-                <app-health-glyph state="unknown" />
-                {{ unknownLabel }}
+                <app-health-glyph [state]="tile.health.state" />
+                {{ labels[tile.health.state] }}
               </span>
+              <span class="detail">
+                @if (tile.health.maxSeverity; as severity) {
+                  <app-severity-glyph [severity]="severity" />
+                  <span class="pb-visually-hidden"
+                    >Highest severity: {{ severityLabels[severity] }}.</span
+                  >
+                }
+                {{ describe(tile) }}
+              </span>
+              @if (tile.health.lastAnomalyMs; as last) {
+                <time class="when" [title]="exact(last)">Last anomaly {{ lastSeen(last) }}</time>
+              }
+              @if (tile.metricCount !== null) {
+                <span class="when pb-figures"
+                  >{{ tile.metricCount }} {{ tile.metricCount === 1 ? 'metric' : 'metrics' }}</span
+                >
+              }
             </a>
           </li>
         }

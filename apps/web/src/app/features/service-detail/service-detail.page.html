@@ -29,7 +29,11 @@
         <ul class="metrics" aria-label="Metrics">
           @for (metric of metrics().items; track metric.id) {
             <li>
-              <a class="metric" [routerLink]="['/app/metrics', metric.id]">
+              <a
+                class="metric"
+                [routerLink]="['/app/metrics', metric.id]"
+                [queryParams]="{ service: id() }"
+              >
                 <span class="name">{{ metric.name }}</span>
                 <span class="meta">{{ describe(metric) }}</span>
               </a>
