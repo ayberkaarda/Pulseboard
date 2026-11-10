@@ -28,6 +28,7 @@ checkstyle {
 val mapstructVersion = "1.6.3"
 val springdocVersion = "3.2.0"
 val archunitVersion = "1.5.1"
+val bouncycastleVersion = "1.86"
 
 dependencies {
     // Web (Spring MVC) and validation
@@ -37,6 +38,8 @@ dependencies {
     // Security with JWT (Nimbus JOSE via spring-security-oauth2-jose)
     implementation("org.springframework.boot:spring-boot-starter-security")
     implementation("org.springframework.boot:spring-boot-starter-security-oauth2-resource-server")
+    // Argon2id implementation used by Spring Security's Argon2PasswordEncoder
+    runtimeOnly("org.bouncycastle:bcprov-jdk18on:$bouncycastleVersion")
 
     // Persistence: JPA (Hibernate), Flyway, PostgreSQL
     implementation("org.springframework.boot:spring-boot-starter-data-jpa")

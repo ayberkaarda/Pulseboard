@@ -33,9 +33,10 @@ USER pulseboard:pulseboard
 ENV SPRING_PROFILES_ACTIVE=docker \
     JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=75.0 -XX:+ExitOnOutOfMemoryError"
 
-EXPOSE 8080
+# 8080: application API. 8081: management (actuator health/info/prometheus); keep it unpublished.
+EXPOSE 8080 8081
 
 HEALTHCHECK --interval=15s --timeout=5s --start-period=60s --retries=5 \
-    CMD curl --fail --silent http://localhost:8080/actuator/health || exit 1
+    CMD curl --fail --silent http://localhost:8081/actuator/health || exit 1
 
 ENTRYPOINT ["java", "org.springframework.boot.loader.launch.JarLauncher"]

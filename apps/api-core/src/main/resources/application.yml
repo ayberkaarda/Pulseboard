@@ -35,11 +35,25 @@ spring:
 server:
   port: ${SERVER_PORT:8080}
   shutdown: graceful
+  # The client address (used for per-client rate limits) is taken from X-Forwarded-For only when the direct peer
+  # is a trusted proxy. Default: the private ranges Docker networks use (the web nginx container). Loopback and
+  # public addresses are not trusted, so a client talking to api-core directly cannot choose its address.
+  # When api-core is reachable directly from a private network, narrow TRUSTED_PROXIES to the proxy's address.
+  forward-headers-strategy: native
+  tomcat:
+    remoteip:
+      internal-proxies: ${TRUSTED_PROXIES:10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2[0-9]|3[0-1])\.\d{1,3}\.\d{1,3}}
+      remote-ip-header: x-forwarded-for
+      protocol-header: x-forwarded-proto
   error:
     include-stacktrace: never
     include-message: never
 
 management:
+  # Actuator (health, info, prometheus) is served only on this port, which is not published outside the
+  # container network. The application port exposes no actuator endpoints.
+  server:
+    port: ${MANAGEMENT_PORT:8081}
   endpoints:
     web:
       exposure:
@@ -63,6 +77,29 @@ springdoc:
     path: /v3/api-docs
   swagger-ui:
     path: /swagger-ui.html
+
+pulseboard:
+  security:
+    jwt:
+      # HS256 signing key; required in every profile and never defaulted (at least 32 bytes).
+      secret: ${JWT_SECRET:}
+      issuer: pulseboard-api-core
+      audience: pulseboard-api
+      access-token-ttl: 15m
+      refresh-token-ttl: 7d
+  partitions:
+    # Monthly metric_point partitions are kept this many months ahead of the current UTC month.
+    months-ahead: ${METRIC_PARTITIONS_MONTHS_AHEAD:3}
+    # Daily at 00:15 UTC (second minute hour day month weekday); also run once at startup.
+    cron: ${METRIC_PARTITIONS_CRON:0 15 0 * * *}
+  rate-limit:
+    auth:
+      # Register, login and refresh requests per client address (shared bucket): 30 per minute.
+      client-capacity: ${AUTH_RATE_LIMIT_CLIENT_CAPACITY:30}
+      client-refill-period: ${AUTH_RATE_LIMIT_CLIENT_PERIOD:1m}
+      # Login attempts per tenant slug + email, checked before password hashing: 10 per 15 minutes.
+      account-capacity: ${AUTH_RATE_LIMIT_ACCOUNT_CAPACITY:10}
+      account-refill-period: ${AUTH_RATE_LIMIT_ACCOUNT_PERIOD:15m}
 
 ---
 spring:

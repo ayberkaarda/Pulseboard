@@ -1,20 +1,41 @@
 package io.pulseboard.core.infrastructure.security;
 
+import io.pulseboard.core.application.apikey.ApiKeyService;
+import io.pulseboard.core.application.tenancy.TenantContext;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
+import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
+import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.authentication.HttpStatusEntryPoint;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
+import org.springframework.web.servlet.HandlerExceptionResolver;
 
 /**
- * Baseline HTTP security: stateless, no form or basic login, operational endpoints open,
- * everything else requires authentication. JWT authentication is wired in Phase 1.
+ * Stateless HTTP security.
+ *
+ * <ul>
+ *   <li>Users authenticate with a JWT bearer access token (roles OWNER, ADMIN, VIEWER).</li>
+ *   <li>Machines authenticate with {@code X-Api-Key} (role API_KEY, read-only catalogue access in this phase).</li>
+ *   <li>The tenant of every authenticated request is bound to {@link TenantContext} before authorization.</li>
+ *   <li>Anonymous authentication endpoints are throttled per client address by an MVC interceptor bound to the
+ *   resolved handler (see {@code api.ratelimit}), so URL encoding variants cannot bypass it.</li>
+ *   <li>All security failures are rendered as RFC 9457 problem details.</li>
+ *   <li>Actuator endpoints are served on the separate management port only; the matchers below apply there.</li>
+ * </ul>
  */
 @Configuration(proxyBeanMethods = false)
 public class SecurityConfiguration {
+
+    private static final String OWNER = "OWNER";
+    private static final String ADMIN = "ADMIN";
+    private static final String VIEWER = "VIEWER";
 
     private static final String[] PUBLIC_ENDPOINTS = {
         "/actuator/health",
@@ -28,18 +49,55 @@ public class SecurityConfiguration {
         "/error"
     };
 
+    private static final String[] AUTH_ENDPOINTS = {
+        "/api/v1/auth/register",
+        "/api/v1/auth/login",
+        "/api/v1/auth/refresh"
+    };
+
     @Bean
-    SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    SecurityFilterChain securityFilterChain(HttpSecurity http, JwtDecoder jwtDecoder, ApiKeyService apiKeyService,
+            TenantContext tenantContext,
+            @Qualifier("handlerExceptionResolver") HandlerExceptionResolver handlerExceptionResolver)
+            throws Exception {
+        ProblemDetailsSecurityHandler problemHandler = new ProblemDetailsSecurityHandler(handlerExceptionResolver);
         return http
                 .csrf(AbstractHttpConfigurer::disable)
                 .formLogin(AbstractHttpConfigurer::disable)
                 .httpBasic(AbstractHttpConfigurer::disable)
                 .logout(AbstractHttpConfigurer::disable)
+                .requestCache(AbstractHttpConfigurer::disable)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(PUBLIC_ENDPOINTS).permitAll()
+                        .requestMatchers(HttpMethod.POST, AUTH_ENDPOINTS).permitAll()
+                        .requestMatchers("/api/v1/api-keys", "/api/v1/api-keys/**").hasAnyRole(OWNER, ADMIN)
+                        .requestMatchers(HttpMethod.GET, "/api/v1/services", "/api/v1/services/**")
+                        .hasAnyRole(OWNER, ADMIN, VIEWER, ApiKeyAuthenticationToken.API_KEY_ROLE)
+                        .requestMatchers(HttpMethod.POST, "/api/v1/services", "/api/v1/services/**")
+                        .hasAnyRole(OWNER, ADMIN)
                         .anyRequest().authenticated())
-                .exceptionHandling(ex -> ex.authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
+                .oauth2ResourceServer(resourceServer -> resourceServer
+                        .jwt(jwt -> jwt.decoder(jwtDecoder).jwtAuthenticationConverter(jwtAuthenticationConverter()))
+                        .authenticationEntryPoint(problemHandler)
+                        .accessDeniedHandler(problemHandler))
+                .exceptionHandling(ex -> ex
+                        .authenticationEntryPoint(problemHandler)
+                        .accessDeniedHandler(problemHandler))
+                // Credentials are irrelevant on the anonymous auth endpoints, so no API-key lookup runs there.
+                .addFilterBefore(new ApiKeyAuthenticationFilter(apiKeyService, problemHandler,
+                        PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/api/v1/auth/**")),
+                        BearerTokenAuthenticationFilter.class)
+                .addFilterAfter(new TenantFilter(tenantContext, problemHandler), BearerTokenAuthenticationFilter.class)
                 .build();
+    }
+
+    private static JwtAuthenticationConverter jwtAuthenticationConverter() {
+        JwtGrantedAuthoritiesConverter authorities = new JwtGrantedAuthoritiesConverter();
+        authorities.setAuthoritiesClaimName(JwtAccessTokenIssuer.ROLE_CLAIM);
+        authorities.setAuthorityPrefix("ROLE_");
+        JwtAuthenticationConverter converter = new JwtAuthenticationConverter();
+        converter.setJwtGrantedAuthoritiesConverter(authorities);
+        return converter;
     }
 }
