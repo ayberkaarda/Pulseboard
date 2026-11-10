@@ -10,10 +10,10 @@ Visual identity, tokens, theming and screen layouts are documented in [DESIGN.md
 
 Captured from the running stack with demo data. The app follows the system colour scheme and also has a manual switch.
 
-| Overview | Anomalies | Metric |
-|---|---|---|
+| Overview                                                                           | Anomalies                                                                            | Metric                                                                               |
+| ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------ |
 | <img src="../../docs/images/overview-light.png" alt="Overview, light" width="300"> | <img src="../../docs/images/anomalies-light.png" alt="Anomalies, light" width="300"> | <img src="../../docs/images/metric-light.png" alt="Metric chart, light" width="300"> |
-| <img src="../../docs/images/overview-dark.png" alt="Overview, dark" width="300"> | <img src="../../docs/images/anomalies-dark.png" alt="Anomalies, dark" width="300"> | <img src="../../docs/images/metric-dark.png" alt="Metric chart, dark" width="300"> |
+| <img src="../../docs/images/overview-dark.png" alt="Overview, dark" width="300">   | <img src="../../docs/images/anomalies-dark.png" alt="Anomalies, dark" width="300">   | <img src="../../docs/images/metric-dark.png" alt="Metric chart, dark" width="300">   |
 
 More captures (mobile, sign in) are in the [root README](../../README.md#screenshots).
 
@@ -23,17 +23,17 @@ More captures (mobile, sign in) are in the [root README](../../README.md#screens
 
 ## Scripts
 
-| Command | Purpose |
-|---|---|
-| `npm start` | Dev server on `http://localhost:4200`; `/api` is proxied to `API_PROXY_TARGET` (default `http://localhost:8080`, see `proxy.conf.js`). |
-| `npm run lint` | ESLint (angular-eslint, typescript-eslint, Prettier-compatible). |
-| `npm test` | Jest via `@angular-builders/jest`. |
-| `npm run build` | Production build into `dist/web/browser`. |
-| `npm run format` / `npm run format:check` | Prettier write / check. |
-| `npm run api:generate` | Rewrites `src/app/api/generated/schema.d.ts` from `contracts/api-core.openapi.yaml`. |
-| `npm run api:check` | Fails when the checked-in schema differs from a fresh generation (CI drift check). |
-| `npm run typecheck` | `tsc --noEmit` over the app and the specs (the Jest builder does not type check). |
-| `node scripts/browser-audit.mjs` | axe-core scan (light and dark) of the pages of a running stack; `BASE` is its origin. Needs system Chrome. |
+| Command                                   | Purpose                                                                                                                                |
+| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm start`                               | Dev server on `http://localhost:4200`; `/api` is proxied to `API_PROXY_TARGET` (default `http://localhost:8080`, see `proxy.conf.js`). |
+| `npm run lint`                            | ESLint (angular-eslint, typescript-eslint, Prettier-compatible).                                                                       |
+| `npm test`                                | Jest via `@angular-builders/jest`.                                                                                                     |
+| `npm run build`                           | Production build into `dist/web/browser`.                                                                                              |
+| `npm run format` / `npm run format:check` | Prettier write / check.                                                                                                                |
+| `npm run api:generate`                    | Rewrites `src/app/api/generated/schema.d.ts` from `contracts/api-core.openapi.yaml`.                                                   |
+| `npm run api:check`                       | Fails when the checked-in schema differs from a fresh generation (CI drift check).                                                     |
+| `npm run typecheck`                       | `tsc --noEmit` over the app and the specs (the Jest builder does not type check).                                                      |
+| `node scripts/browser-audit.mjs`          | axe-core scan (light and dark) of the pages of a running stack; `BASE` is its origin. Needs system Chrome.                             |
 
 `scripts/browser-audit.mjs` also reads `VIEWPORT_WIDTH` (for example 390 for the narrow layout) and, when `SHOT_DIR` is set, writes a full-page screenshot per scan named `SHOT_PREFIX-scheme-page.png`.
 

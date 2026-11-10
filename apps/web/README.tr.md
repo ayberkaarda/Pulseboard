@@ -10,10 +10,10 @@ Görsel kimlik, tasarım token'ları, temalandırma ve ekran yerleşimleri [DESI
 
 Demo verisiyle çalışan ortamdan alınmıştır. Uygulama sistemin renk şemasını izler ve elle değiştirme anahtarı da vardır.
 
-| Genel bakış | Anomaliler | Metrik |
-|---|---|---|
+| Genel bakış                                                                               | Anomaliler                                                                                | Metrik                                                                                     |
+| ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
 | <img src="../../docs/images/overview-light.png" alt="Genel bakış, açık tema" width="300"> | <img src="../../docs/images/anomalies-light.png" alt="Anomaliler, açık tema" width="300"> | <img src="../../docs/images/metric-light.png" alt="Metrik grafiği, açık tema" width="300"> |
-| <img src="../../docs/images/overview-dark.png" alt="Genel bakış, koyu tema" width="300"> | <img src="../../docs/images/anomalies-dark.png" alt="Anomaliler, koyu tema" width="300"> | <img src="../../docs/images/metric-dark.png" alt="Metrik grafiği, koyu tema" width="300"> |
+| <img src="../../docs/images/overview-dark.png" alt="Genel bakış, koyu tema" width="300">  | <img src="../../docs/images/anomalies-dark.png" alt="Anomaliler, koyu tema" width="300">  | <img src="../../docs/images/metric-dark.png" alt="Metrik grafiği, koyu tema" width="300">  |
 
 Daha fazla görüntü (mobil, giriş) [kök README](../../README.tr.md#ekran-görüntüleri) içindedir.
 
@@ -23,17 +23,17 @@ Daha fazla görüntü (mobil, giriş) [kök README](../../README.tr.md#ekran-gö
 
 ## Komutlar
 
-| Komut | Amaç |
-|---|---|
-| `npm start` | `http://localhost:4200` adresinde geliştirme sunucusu; `/api` istekleri `API_PROXY_TARGET` adresine yönlendirilir (varsayılan `http://localhost:8080`, bkz. `proxy.conf.js`). |
-| `npm run lint` | ESLint (angular-eslint, typescript-eslint, Prettier uyumlu). |
-| `npm test` | `@angular-builders/jest` ile Jest. |
-| `npm run build` | `dist/web/browser` dizinine üretim derlemesi. |
-| `npm run format` / `npm run format:check` | Prettier ile yazma / denetleme. |
-| `npm run api:generate` | `src/app/api/generated/schema.d.ts` dosyasını `contracts/api-core.openapi.yaml` içinden yeniden yazar. |
-| `npm run api:check` | Depodaki şema, yeni üretilenden farklıysa başarısız olur (CI sapma denetimi). |
-| `npm run typecheck` | Uygulama ve spec dosyaları üzerinde `tsc --noEmit` (Jest builder tip denetimi yapmaz). |
-| `node scripts/browser-audit.mjs` | Çalışan ortamın sayfalarında axe-core taraması (açık ve koyu tema); `BASE` ortamın adresidir. Sistemde Chrome gerekir. |
+| Komut                                     | Amaç                                                                                                                                                                          |
+| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm start`                               | `http://localhost:4200` adresinde geliştirme sunucusu; `/api` istekleri `API_PROXY_TARGET` adresine yönlendirilir (varsayılan `http://localhost:8080`, bkz. `proxy.conf.js`). |
+| `npm run lint`                            | ESLint (angular-eslint, typescript-eslint, Prettier uyumlu).                                                                                                                  |
+| `npm test`                                | `@angular-builders/jest` ile Jest.                                                                                                                                            |
+| `npm run build`                           | `dist/web/browser` dizinine üretim derlemesi.                                                                                                                                 |
+| `npm run format` / `npm run format:check` | Prettier ile yazma / denetleme.                                                                                                                                               |
+| `npm run api:generate`                    | `src/app/api/generated/schema.d.ts` dosyasını `contracts/api-core.openapi.yaml` içinden yeniden yazar.                                                                        |
+| `npm run api:check`                       | Depodaki şema, yeni üretilenden farklıysa başarısız olur (CI sapma denetimi).                                                                                                 |
+| `npm run typecheck`                       | Uygulama ve spec dosyaları üzerinde `tsc --noEmit` (Jest builder tip denetimi yapmaz).                                                                                        |
+| `node scripts/browser-audit.mjs`          | Çalışan ortamın sayfalarında axe-core taraması (açık ve koyu tema); `BASE` ortamın adresidir. Sistemde Chrome gerekir.                                                        |
 
 `scripts/browser-audit.mjs` ayrıca `VIEWPORT_WIDTH` değerini okur (dar yerleşim için örneğin 390). `SHOT_DIR` verilirse her tarama için `SHOT_PREFIX-scheme-page.png` adıyla tam sayfa ekran görüntüsü yazar.
 
