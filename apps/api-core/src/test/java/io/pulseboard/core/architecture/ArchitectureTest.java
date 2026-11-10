@@ -12,10 +12,14 @@ import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.lang.EvaluationResult;
 import io.pulseboard.core.architecture.fixtures.UnscopedServiceRepository;
+import io.pulseboard.core.domain.alert.AlertEventRepository;
+import io.pulseboard.core.domain.alert.AlertOutbox;
+import io.pulseboard.core.domain.alert.AlertRuleRepository;
 import io.pulseboard.core.domain.anomaly.AnomalyRepository;
 import io.pulseboard.core.domain.catalog.Service;
 import io.pulseboard.core.domain.shared.TenantScoped;
 import io.pulseboard.core.domain.tenancy.TenantId;
+import java.util.List;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -78,7 +82,7 @@ class ArchitectureTest {
                 .map(JavaClass::getSimpleName))
                 .contains("UserRepository", "ApiKeyRepository", "RefreshTokenRepository", "ServiceRepository",
                         "MetricDefinitionRepository", "JpaServiceRepository", "JpaRefreshTokenRepository",
-                        "MetricSampleRepository", "AnomalyRepository")
+                        "MetricSampleRepository", "AnomalyRepository", "AlertRuleRepository", "AlertEventRepository")
                 .doesNotContain("TenantRepository");
     }
 
@@ -106,7 +110,7 @@ class ArchitectureTest {
         assertThat(production.stream()
                 .filter(javaClass -> javaClass.isRecord() && javaClass.isAnnotatedWith(TenantScoped.class))
                 .map(JavaClass::getSimpleName))
-                .contains("Anomaly");
+                .contains("Anomaly", "AlertRule", "AlertEvent", "DueAlert");
     }
 
     @Test
@@ -116,6 +120,25 @@ class ArchitectureTest {
         assertThat(repository.getMethods()).isNotEmpty().allSatisfy(method ->
                 assertThat(method.getRawParameterTypes()).as(method.getFullName())
                         .anyMatch(type -> type.isEquivalentTo(TenantId.class)));
+    }
+
+    @Test
+    void alertQueriesRequireATenant() {
+        for (Class<?> repository : List.of(AlertRuleRepository.class, AlertEventRepository.class)) {
+            assertThat(production.get(repository).getMethods()).isNotEmpty().allSatisfy(method ->
+                    assertThat(method.getRawParameterTypes()).as(method.getFullName())
+                            .anyMatch(type -> type.isEquivalentTo(TenantId.class)));
+        }
+    }
+
+    @Test
+    void theOutboxOnlyClaimsAcrossTenantsAndEveryStateChangeNamesTheTenant() {
+        assertThat(production.get(AlertOutbox.class).getMethods()).isNotEmpty().allSatisfy(method -> {
+            if (!method.getName().equals("claimDue")) {
+                assertThat(method.getRawParameterTypes()).as(method.getFullName())
+                        .anyMatch(type -> type.isEquivalentTo(TenantId.class));
+            }
+        });
     }
 
     @Test

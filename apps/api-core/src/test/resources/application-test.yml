@@ -15,6 +15,8 @@ pulseboard:
       lease: 30s
       delivery-timeout: 10s
       backoff: 1s,1s,1s
+      # All tests talk to the same receiver host; a dedicated test covers the circuit breaker.
+      host-failure-threshold: 1000
     webhook:
       # Random per test JVM; tests read it back through the environment property.
       signing-secret: ${random.value}${random.value}
