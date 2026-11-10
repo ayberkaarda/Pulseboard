@@ -67,16 +67,17 @@
   </form>
 }
 
-@switch (store.series().status) {
+@switch (notFound() ? 'missing' : store.series().status) {
+  @case ('missing') {
+    <app-empty-state
+      heading="This metric does not exist"
+      body="It may have been removed, or it belongs to another workspace."
+    >
+      <a routerLink="/app/overview">Back to overview</a>
+    </app-empty-state>
+  }
   @case ('error') {
-    @if (notFound()) {
-      <app-empty-state
-        heading="This metric does not exist"
-        body="It may have been removed, or it belongs to another workspace."
-      >
-        <a routerLink="/app/overview">Back to overview</a>
-      </app-empty-state>
-    } @else if (store.series().problem; as problem) {
+    @if (store.series().problem; as problem) {
       <app-load-error
         heading="Could not load the values"
         [problem]="problem"
@@ -233,11 +234,7 @@
           }
           <div role="list" class="pb-list" aria-label="Anomalies of this metric">
             @for (anomaly of store.anomalies().items; track anomaly.id) {
-              <app-anomaly-row
-                [anomaly]="anomaly"
-                [metricName]="metricName()"
-                [linkToMetric]="false"
-              />
+              <app-anomaly-row [anomaly]="anomaly" [linkToMetric]="false" />
             }
           </div>
         }

@@ -8,6 +8,7 @@ import { ApiClient } from '../../api/api-client';
 import {
   Aggregation,
   Anomaly,
+  MetricDefinition,
   MetricPoint,
   compareAnomalies,
   toAnomaly,
@@ -46,8 +47,16 @@ interface AnomalyState {
   readonly problem: ApiProblem | null;
 }
 
+interface DefinitionState {
+  readonly status: Status;
+  readonly item: MetricDefinition | null;
+  readonly problem: ApiProblem | null;
+}
+
 interface MetricsState {
   metricId: string | null;
+  /** The metric's own definition (name, unit, owning service), read by id. */
+  definition: DefinitionState;
   range: RangeSelection;
   /** The window of the data on screen (or loading); null when the selection cannot be queried. */
   window: RangeWindow | null;
@@ -57,11 +66,13 @@ interface MetricsState {
   loadedAt: number | null;
 }
 
+const IDLE_DEFINITION: DefinitionState = { status: 'idle', item: null, problem: null };
 const IDLE_SERIES: SeriesState = { status: 'idle', points: [], aggregation: null, problem: null };
 const IDLE_ANOMALIES: AnomalyState = { status: 'idle', items: [], totalItems: 0, problem: null };
 
 const INITIAL: MetricsState = {
   metricId: null,
+  definition: IDLE_DEFINITION,
   range: { kind: 'preset', id: '24h' },
   window: null,
   series: IDLE_SERIES,
@@ -110,6 +121,31 @@ export const MetricsStore = signalStore(
     const arrivals = new ChangeBuffer();
     // A reconnect happened while the anomalies were loading: read them once more when they land.
     let resyncQueued = false;
+
+    const fetchDefinition = rxMethod<{ metricId: string; epoch: number }>(
+      pipe(
+        tap(() =>
+          patchState(store, (state) => ({
+            definition: { ...state.definition, status: 'loading' as const, problem: null },
+          })),
+        ),
+        switchMap(({ metricId, epoch: startedIn }) =>
+          api
+            .get('/api/v1/metrics/{metricId}', { path: { metricId }, context: quietContext() })
+            .pipe(
+              map((item): DefinitionState => ({ status: 'loaded', item, problem: null })),
+              catchError((error: unknown) =>
+                of<DefinitionState>({ status: 'error', item: null, problem: problemOf(error) }),
+              ),
+              tap((definition) => {
+                if (startedIn === epoch) {
+                  patchState(store, { definition });
+                }
+              }),
+            ),
+        ),
+      ),
+    );
 
     const fetchPoints = rxMethod<Request>(
       pipe(
@@ -291,7 +327,13 @@ export const MetricsStore = signalStore(
           return;
         }
         epoch += 1;
-        patchState(store, { series: IDLE_SERIES, anomalies: IDLE_ANOMALIES, loadedAt: null });
+        patchState(store, {
+          definition: IDLE_DEFINITION,
+          series: IDLE_SERIES,
+          anomalies: IDLE_ANOMALIES,
+          loadedAt: null,
+        });
+        fetchDefinition({ metricId, epoch });
         run(metricId, store.metricId() === metricId ? store.range() : INITIAL.range);
       },
 
@@ -306,6 +348,9 @@ export const MetricsStore = signalStore(
       refresh(): void {
         const metricId = store.metricId();
         if (metricId !== null) {
+          if (store.definition().status === 'error') {
+            fetchDefinition({ metricId, epoch });
+          }
           run(metricId, store.range());
         }
       },

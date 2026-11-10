@@ -57,8 +57,6 @@ function toLocalInput(ms: number): string {
 export class MetricDetailPage {
   /** Route parameter, bound through withComponentInputBinding. */
   readonly id = input.required<string>();
-  /** Query parameter: the service that owns the metric (the API has no "get metric" call). */
-  readonly service = input<string>();
 
   protected readonly store = inject(MetricsStore);
   protected readonly catalog = inject(ServicesStore);
@@ -72,19 +70,14 @@ export class MetricDetailPage {
   protected readonly customFrom = signal('');
   protected readonly customTo = signal('');
 
-  protected readonly metric = computed<MetricDefinition | undefined>(() => {
-    const id = this.id();
-    const serviceId = this.service();
-    const lists = serviceId
-      ? [this.catalog.metrics()[serviceId]]
-      : Object.values(this.catalog.metrics());
-    return lists.flatMap((list) => list?.items ?? []).find((metric) => metric.id === id);
-  });
+  protected readonly metric = computed<MetricDefinition | undefined>(
+    () => this.store.definition().item ?? undefined,
+  );
   protected readonly serviceName = computed(() => {
-    const serviceId = this.service() ?? this.metric()?.serviceId;
+    const serviceId = this.metric()?.serviceId;
     return this.catalog.services().items.find((item) => item.id === serviceId)?.name;
   });
-  protected readonly serviceId = computed(() => this.service() ?? this.metric()?.serviceId);
+  protected readonly serviceId = computed(() => this.metric()?.serviceId);
 
   protected readonly title = computed(() => this.metric()?.name ?? 'Metric');
   protected readonly unit = computed(() => this.metric()?.unit ?? '');
@@ -116,7 +109,11 @@ export class MetricDetailPage {
     const at = this.store.loadedAt();
     return at === null ? '' : format(at, 'HH:mm:ss');
   });
-  protected readonly notFound = computed(() => this.store.series().problem?.status === 404);
+  protected readonly notFound = computed(
+    () =>
+      this.store.definition().problem?.status === 404 ||
+      this.store.series().problem?.status === 404,
+  );
   protected readonly truncated = computed(
     () => this.store.anomalies().totalItems > this.store.anomalies().items.length,
   );
@@ -137,17 +134,8 @@ export class MetricDetailPage {
       });
     });
 
-    // Names: the services list and the metric definitions of the owning service. Without the
-    // service in the URL every service is asked once, so the name can still be found.
+    // The owning service's name comes from the services list; the metric itself is read by id.
     this.catalog.loadServices();
-    effect(() => {
-      const serviceId = this.service();
-      if (serviceId) {
-        this.catalog.ensureMetrics([serviceId]);
-      } else {
-        this.catalog.ensureMetrics(this.catalog.services().items.map((item) => item.id));
-      }
-    });
   }
 
   protected isPreset(id: RangePresetId): boolean {
@@ -183,10 +171,6 @@ export class MetricDetailPage {
     }
     this.customError.set(null);
     this.store.selectRange(range);
-  }
-
-  protected metricName(): string | undefined {
-    return this.metric()?.name;
   }
 
   protected value(value: number | null): string {

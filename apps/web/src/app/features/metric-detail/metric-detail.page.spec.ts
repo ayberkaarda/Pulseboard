@@ -41,10 +41,7 @@ class ChartStub {
 
 type Http = HttpTestingController;
 
-async function renderPage(
-  role = 'OWNER',
-  inputs: Record<string, unknown> = { id: METRIC, service: SERVICE },
-) {
+async function renderPage(role = 'OWNER', inputs: Record<string, unknown> = { id: METRIC }) {
   TestBed.overrideComponent(MetricDetailPage, {
     remove: { imports: [MetricChartComponent] },
     add: { imports: [ChartStub] },
@@ -82,16 +79,14 @@ function answerNames(http: Http) {
     .flush([
       { id: SERVICE, name: 'checkout', environment: 'PROD', createdAt: '2026-01-01T00:00:00Z' },
     ]);
-  http.expectOne(`/api/v1/services/${SERVICE}/metrics`).flush([
-    {
-      id: METRIC,
-      serviceId: SERVICE,
-      name: 'latency.p95',
-      unit: 'ms',
-      aggregation: 'AVG',
-      createdAt: '2026-01-01T00:00:00Z',
-    },
-  ]);
+  http.expectOne(`/api/v1/metrics/${METRIC}`).flush({
+    id: METRIC,
+    serviceId: SERVICE,
+    name: 'latency.p95',
+    unit: 'ms',
+    aggregation: 'AVG',
+    createdAt: '2026-01-01T00:00:00Z',
+  });
 }
 
 const series = (values: (number | null)[]) => ({
@@ -204,6 +199,31 @@ describe('MetricDetailPage', () => {
     expect(
       screen.queryByRole('heading', { name: 'Anomalies in this range' }),
     ).not.toBeInTheDocument();
+  });
+
+  it('tells the person when the metric definition itself is not found', async () => {
+    const { http } = await renderPage();
+    http.expectOne('/api/v1/services').flush([]);
+    http
+      .expectOne(`/api/v1/metrics/${METRIC}`)
+      .flush({ type: 'urn:pulseboard:problem:not-found' }, { status: 404, statusText: 'x' });
+    points(http).flush(series([]));
+    anomalies(http).flush({ items: [] });
+
+    expect(
+      await screen.findByRole('heading', { name: 'This metric does not exist' }),
+    ).toBeInTheDocument();
+  });
+
+  it('asks for the metric by id and for no per-service metric lists', async () => {
+    const { http } = await renderPage();
+    answerNames(http);
+    points(http).flush(series([1]));
+    anomalies(http).flush({ items: [] });
+    http.expectNone((req) => /\/services\/[^/]+\/metrics$/.test(req.url));
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'latency.p95' }),
+    ).toBeInTheDocument();
   });
 
   it('reads another range when a preset is chosen, and says which one is active', async () => {
