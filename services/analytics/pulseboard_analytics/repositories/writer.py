@@ -95,8 +95,12 @@ class DetectorStateStore:
             point_count=int(params["point_count"]),
         )
 
-    def upsert(self, metric_id: UUID, detector: Detector, state: ForestState) -> None:
-        """Insert or replace the state of ``(metric_id, detector)``."""
+    def upsert(self, metric_id: UUID, detector: Detector, state: ForestState) -> bool:
+        """Insert the state of ``(metric_id, detector)`` or replace an older version of it.
+
+        The write is monotonic: a row whose stored version is equal or newer is left untouched.
+        Returns whether the state was written.
+        """
         params = {
             "trained_at": state.trained_at.isoformat(),
             "version": state.version,
@@ -110,13 +114,14 @@ class DetectorStateStore:
             trained_at=state.trained_at,
             version=state.version,
         )
-        stmt = stmt.on_conflict_do_update(
+        upsert = stmt.on_conflict_do_update(
             index_elements=[detector_state.c.metric_id, detector_state.c.detector],
             set_={
                 "params": stmt.excluded.params,
                 "trained_at": stmt.excluded.trained_at,
                 "version": stmt.excluded.version,
             },
-        )
+            where=detector_state.c.version < stmt.excluded.version,
+        ).returning(detector_state.c.version)
         with self._engine.begin() as conn:
-            conn.execute(stmt)
+            return conn.execute(upsert).first() is not None
