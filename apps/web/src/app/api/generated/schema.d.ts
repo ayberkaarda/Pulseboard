@@ -109,6 +109,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * End the session
+         * @description Revokes the whole refresh-token family of the presented refresh token, so neither it nor any token rotated from it can be exchanged again. Needs no access token (it may already have expired; one that is sent is ignored). Idempotent: an unknown, expired or already revoked token is answered with 204 exactly like a valid one.
+         */
+        post: operations["logout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/refresh": {
         parameters: {
             query?: never;
@@ -191,6 +211,26 @@ export interface paths {
         get: operations["listServices"];
         put?: never;
         post: operations["createService"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/services/{serviceId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a service
+         * @description 404 when the id is unknown or belongs to another tenant (identical responses).
+         */
+        get: operations["getService"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -283,51 +323,51 @@ export interface components {
              * Format: date-time
              * @description When the anomaly was acknowledged; null while it is open.
              */
-            acknowledgedAt?: string | null;
+            acknowledgedAt: string | null;
             /**
              * Format: uuid
              * @description User that acknowledged the anomaly; null while it is open, or when that user was deleted afterwards.
              */
-            acknowledgedBy?: string | null;
+            acknowledgedBy: string | null;
             /**
              * Format: date-time
              * @description When the anomaly was stored.
              */
-            createdAt?: string;
+            createdAt: string;
             /** @description Detector specific details. */
-            details?: {
+            details: {
                 [key: string]: unknown;
             };
             /** @enum {string} */
-            detector?: "ZSCORE" | "ISOLATION_FOREST";
+            detector: "ZSCORE" | "ISOLATION_FOREST";
             /** Format: uuid */
-            id?: string;
+            id: string;
             /** Format: uuid */
-            metricId?: string;
+            metricId: string;
             /**
              * Format: double
              * @description Anomaly score between 0 and 1.
              */
-            score?: number;
+            score: number;
             /**
              * Format: uuid
              * @description Service that owns the metric.
              */
-            serviceId?: string;
+            serviceId: string;
             /** @enum {string} */
-            severity?: "LOW" | "MEDIUM" | "HIGH";
+            severity: "LOW" | "MEDIUM" | "HIGH";
             /** Format: uuid */
-            tenantId?: string;
+            tenantId: string;
             /**
              * Format: date-time
              * @description End of the scored window.
              */
-            windowEnd?: string;
+            windowEnd: string;
             /**
              * Format: date-time
              * @description Inclusive start of the scored window.
              */
-            windowStart?: string;
+            windowStart: string;
         };
         /** @description One stored anomaly. Only id and tenantId are used by the server; the other members are informational. */
         AnomalyDetectedItem: {
@@ -359,45 +399,45 @@ export interface components {
              * Format: int32
              * @description Distinct anomalies found in the database and published.
              */
-            accepted?: number;
+            accepted: number;
             /**
              * Format: int32
              * @description Distinct entries whose id does not exist or belongs to another tenant than the one claimed.
              */
-            unknown?: number;
+            unknown: number;
         };
         /** @description One page of anomalies, newest window first. */
         AnomalyPage: {
-            items?: components["schemas"]["Anomaly"][];
+            items: components["schemas"]["Anomaly"][];
             /**
              * Format: int32
              * @description Zero-based page number.
              */
-            page?: number;
+            page: number;
             /**
              * Format: int32
              * @description Requested page size.
              */
-            size?: number;
+            size: number;
             /**
              * Format: int64
              * @description Number of anomalies that match the filters.
              */
-            totalItems?: number;
+            totalItems: number;
             /**
              * Format: int64
              * @description Number of pages of this size.
              */
-            totalPages?: number;
+            totalPages: number;
         };
         ApiKeyCreatedResponse: {
             /** Format: date-time */
-            createdAt?: string;
+            createdAt: string;
             /** Format: uuid */
-            id?: string;
-            key?: string;
-            name?: string;
-            prefix?: string;
+            id: string;
+            key: string;
+            name: string;
+            prefix: string;
         };
         CreateApiKeyRequest: {
             name: string;
@@ -419,14 +459,17 @@ export interface components {
              * Format: int32
              * @description Number of points stored (rows written); accepted + rejected = points sent.
              */
-            accepted?: number;
+            accepted: number;
             /** @description Points that were not stored, in ascending index order. */
-            rejected?: components["schemas"]["RejectedPoint"][];
+            rejected: components["schemas"]["RejectedPoint"][];
         };
         LoginRequest: {
             email: string;
             password: string;
             tenantSlug: string;
+        };
+        LogoutRequest: {
+            refreshToken: string;
         };
         /** @description A batch of metric points (contracts/events/metric-batch.schema.json). */
         MetricBatch: {
@@ -436,15 +479,15 @@ export interface components {
         };
         MetricDefinitionResponse: {
             /** @enum {string} */
-            aggregation?: "AVG" | "SUM" | "MAX" | "P95";
+            aggregation: "AVG" | "SUM" | "MAX" | "P95";
             /** Format: date-time */
-            createdAt?: string;
+            createdAt: string;
             /** Format: uuid */
-            id?: string;
-            name?: string;
+            id: string;
+            name: string;
             /** Format: uuid */
-            serviceId?: string;
-            unit?: string;
+            serviceId: string;
+            unit: string;
         };
         /** @description One sample of a metric. */
         MetricPoint: {
@@ -466,17 +509,17 @@ export interface components {
              * Format: int64
              * @description Number of samples in the bucket.
              */
-            count?: number;
+            count: number;
             /**
              * Format: date-time
              * @description Start of the bucket (epoch-aligned; the first bucket may start before from).
              */
-            ts?: string;
+            ts: string;
             /**
              * Format: double
              * @description Aggregated value of the bucket; null when the aggregate is not a finite number (not reachable with values accepted by ingestion).
              */
-            value?: number | null;
+            value: number | null;
         };
         /** @description A metric downsampled into epoch-aligned buckets. */
         MetricPoints: {
@@ -484,26 +527,26 @@ export interface components {
              * @description How the samples of each bucket are combined (from the metric definition).
              * @enum {string}
              */
-            aggregation?: "AVG" | "SUM" | "MAX" | "P95";
+            aggregation: "AVG" | "SUM" | "MAX" | "P95";
             /**
              * Format: date-time
              * @description Inclusive start of the queried range, rounded up to whole microseconds.
              */
-            from?: string;
+            from: string;
             /** Format: uuid */
-            metricId?: string;
+            metricId: string;
             /** @description Non-empty buckets in ascending order; at most 2000. */
-            points?: components["schemas"]["MetricPointBucket"][];
+            points: components["schemas"]["MetricPointBucket"][];
             /**
              * @description Bucket width used (ISO 8601 duration).
              * @example PT5M
              */
-            step?: string;
+            step: string;
             /**
              * Format: date-time
              * @description Exclusive end of the queried range, rounded up to whole microseconds.
              */
-            to?: string;
+            to: string;
         };
         /** @description RFC 9457 problem details (application/problem+json). */
         Problem: {
@@ -513,13 +556,13 @@ export interface components {
             /** @description Request path. */
             instance?: string;
             /** Format: int32 */
-            status?: number;
-            title?: string;
+            status: number;
+            title: string;
             /**
              * @description Problem type URI, urn:pulseboard:problem:<kind>.
              * @example urn:pulseboard:problem:validation
              */
-            type?: string;
+            type: string;
         };
         ProblemFieldError: {
             field?: string;
@@ -540,21 +583,21 @@ export interface components {
              * Format: int32
              * @description Zero-based index of the point in the batch.
              */
-            index?: number;
+            index: number;
             /**
              * @description Why the point was not stored: unknown metric | timestamp is outside the range accepted for storage | timestamp cannot be represented | value must be a finite number | value magnitude must not exceed 1e100 | superseded by a later point with the same metricId and ts.
              * @example unknown metric
              */
-            reason?: string;
+            reason: string;
         };
         ServiceResponse: {
             /** Format: date-time */
-            createdAt?: string;
+            createdAt: string;
             /** @enum {string} */
-            environment?: "PROD" | "STAGING" | "DEV";
+            environment: "PROD" | "STAGING" | "DEV";
             /** Format: uuid */
-            id?: string;
-            name?: string;
+            id: string;
+            name: string;
         };
         StreamTicketResponse: {
             /**
@@ -562,23 +605,26 @@ export interface components {
              * @description Seconds the ticket can still be used
              * @example 30
              */
-            expiresInSeconds?: number;
+            expiresInSeconds: number;
             /** @description Opaque one-time value for the `ticket` query parameter of the stream endpoint. 256 random bits, URL-safe base64 without padding. Shown once; never log or store it. */
-            ticket?: string;
+            ticket: string;
         };
         TokenResponse: {
-            accessToken?: string;
+            accessToken: string;
             /** Format: date-time */
-            accessTokenExpiresAt?: string;
-            refreshToken?: string;
-            /** Format: date-time */
-            refreshTokenExpiresAt?: string;
-            role?: string;
+            accessTokenExpiresAt: string;
+            refreshToken: string;
+            /**
+             * Format: date-time
+             * @description End of the refresh token's validity; never later than the end of the session (absolute refresh lifetime).
+             */
+            refreshTokenExpiresAt: string;
+            role: string;
             /** Format: uuid */
-            tenantId?: string;
-            tokenType?: string;
+            tenantId: string;
+            tokenType: string;
             /** Format: uuid */
-            userId?: string;
+            userId: string;
         };
     };
     responses: never;
@@ -851,6 +897,48 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TokenResponse"];
+                };
+            };
+        };
+    };
+    logout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LogoutRequest"];
+            };
+        };
+        responses: {
+            /** @description Session ended (or there was none) */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Malformed body */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Too many requests from this client */
+            429: {
+                headers: {
+                    /** @description Seconds until a retry can succeed */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -1157,6 +1245,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ServiceResponse"];
+                };
+            };
+        };
+    };
+    getService: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                serviceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceResponse"];
+                };
+            };
+            /** @description No such service for the caller's tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
