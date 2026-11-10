@@ -144,7 +144,16 @@ describe('ShellComponent', () => {
     await user.click(screen.getByRole('button', { name: 'Signal key' }));
 
     const dialog = await screen.findByRole('dialog', { name: 'Signal key' });
-    for (const label of ['Healthy', 'Degraded', 'Down', 'No data', 'Low', 'Medium', 'High']) {
+    for (const label of [
+      'Healthy',
+      'Degraded',
+      'Down',
+      'Stale',
+      'No data',
+      'Low',
+      'Medium',
+      'High',
+    ]) {
       expect(within(dialog).getByText(label)).toBeInTheDocument();
     }
 

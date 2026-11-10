@@ -50,6 +50,12 @@ export class SignalKeyDialogComponent {
       meaning: 'Not responding, or failing most requests.',
     },
     {
+      value: 'stale',
+      label: HEALTH_LABELS.stale,
+      meaning:
+        'No open anomaly, but the newest data is more than 15 minutes old, so health cannot be confirmed.',
+    },
+    {
       value: 'unknown',
       label: HEALTH_LABELS.unknown,
       meaning: 'No heartbeat received recently.',

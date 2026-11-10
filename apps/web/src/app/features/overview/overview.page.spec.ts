@@ -16,11 +16,16 @@ const CHECKOUT = '11111111-1111-4111-8111-111111111111';
 const PAYMENTS = '22222222-2222-4222-8222-222222222222';
 const EMPTY = '33333333-3333-4333-8333-333333333333';
 
-const service = (id: string, name: string) => ({
+const service = (
+  id: string,
+  name: string,
+  lastPointAt: string | null = new Date().toISOString(),
+) => ({
   id,
   name,
   environment: 'PROD',
   createdAt: '2026-01-01T00:00:00Z',
+  lastPointAt,
 });
 
 const metric = (serviceId: string, n: number) => ({
@@ -134,6 +139,41 @@ describe('OverviewPage', () => {
 
     await within(tile('checkout')).findByText('Healthy');
     expect(tile('checkout')).toHaveTextContent('No open anomalies in the last hour');
+  });
+
+  it('shows a service whose newest data is old and that has no open anomaly as stale, not healthy', async () => {
+    const { http } = await renderOverview();
+    flushBoard(
+      http,
+      [],
+      [
+        service(CHECKOUT, 'checkout', minutesAgo(120)),
+        service(PAYMENTS, 'payments', minutesAgo(2)),
+        service(EMPTY, 'search', null),
+      ],
+    );
+    await screen.findByRole('list', { name: 'Services' });
+    flushMetrics(http);
+
+    await within(tile('checkout')).findByText('Stale');
+    expect(within(tile('checkout')).queryByText('Healthy')).not.toBeInTheDocument();
+    expect(tile('checkout')).toHaveTextContent('Last data 2 hours ago');
+    expect(within(tile('payments')).getByText('Healthy')).toBeInTheDocument();
+    expect(within(tile('search')).getByText('No data')).toBeInTheDocument();
+    const summary = screen.getByRole('list', { name: 'Services by health' });
+    expect(within(summary).getByText('Stale').parentElement).toHaveTextContent('1');
+  });
+
+  it('lets an open anomaly win over stale data', async () => {
+    const { http } = await renderOverview();
+    flushBoard(
+      http,
+      [rawAnomaly({ serviceId: CHECKOUT, severity: 'HIGH', windowStart: minutesAgo(5) })],
+      [service(CHECKOUT, 'checkout', minutesAgo(120))],
+    );
+    await screen.findByRole('list', { name: 'Services' });
+    http.expectOne(`/api/v1/services/${CHECKOUT}/metrics`).flush([metric(CHECKOUT, 1)]);
+    await within(tile('checkout')).findByText('Down');
   });
 
   it('uses one anomalies request for every service, not one per service', async () => {

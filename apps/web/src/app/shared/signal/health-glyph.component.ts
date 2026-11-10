@@ -4,7 +4,7 @@ import { HealthState } from './signal.model';
 
 /**
  * Health is encoded twice: by color and by shape (circle, triangle, square,
- * dashed ring), so the state survives color-vision deficiency, grayscale
+ * dashed ring, ring with clock hands), so the state survives color-vision deficiency, grayscale
  * screenshots and forced-colors mode. The glyph is decorative; the caller
  * always renders the state's text label next to it.
  */
@@ -21,6 +21,10 @@ import { HealthState } from './signal.model';
         }
         @case ('down') {
           <rect x="1.75" y="1.75" width="8.5" height="8.5" rx="1" />
+        }
+        @case ('stale') {
+          <circle class="ring" cx="6" cy="6" r="4.5" />
+          <path class="hands" d="M6 3.4V6l1.9 1.2" />
         }
         @case ('unknown') {
           <circle class="hollow" cx="6" cy="6" r="4" />
@@ -49,6 +53,14 @@ import { HealthState } from './signal.model';
       width: 100%;
       height: 100%;
       fill: currentColor;
+    }
+    .ring,
+    .hands {
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1.4;
+      stroke-linecap: round;
+      stroke-linejoin: round;
     }
     .hollow {
       fill: none;

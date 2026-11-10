@@ -5,6 +5,7 @@ import {
   ServiceHealth,
   compareByUrgency,
   countsForHealth,
+  STALE_AFTER_MS,
   deriveHealth,
 } from './service-health';
 
@@ -128,7 +129,14 @@ describe('countsForHealth', () => {
 describe('compareByUrgency', () => {
   const make = (name: string, state: ServiceHealth['state'], openCount = 0) => ({
     name,
-    health: { state, openCount, maxSeverity: null, lastAnomalyMs: null },
+    health: {
+      state,
+      openCount,
+      maxSeverity: null,
+      lastAnomalyMs: null,
+      incomplete: false,
+      lastPointMs: undefined,
+    },
   });
 
   it('puts down first, then degraded, then healthy, then no data; ties by open count then name', () => {
@@ -166,5 +174,52 @@ describe('deriveHealth with an incomplete anomaly result', () => {
 
   it('is healthy again once the result is complete', () => {
     expect(deriveHealth([], 3, NOW, true).state).toBe('healthy');
+  });
+});
+
+describe('deriveHealth with the age of the newest sample', () => {
+  it('is stale, not healthy, when the newest sample is older than the threshold', () => {
+    const health = deriveHealth([], 3, NOW, true, NOW - STALE_AFTER_MS - 1);
+    expect(health.state).toBe('stale');
+    expect(health.lastPointMs).toBe(NOW - STALE_AFTER_MS - 1);
+  });
+
+  it('is healthy at exactly the threshold and with fresh data', () => {
+    expect(deriveHealth([], 3, NOW, true, NOW - STALE_AFTER_MS).state).toBe('healthy');
+    expect(deriveHealth([], 3, NOW, true, NOW - 1000).state).toBe('healthy');
+  });
+
+  it('has no data when the service never had a sample', () => {
+    expect(deriveHealth([], 3, NOW, true, null).state).toBe('unknown');
+  });
+
+  it('does not judge by age when it is not known', () => {
+    expect(deriveHealth([], 3, NOW, true, undefined).state).toBe('healthy');
+  });
+
+  it('lets an open anomaly win over staleness', () => {
+    const old = NOW - 3 * 3_600_000;
+    expect(deriveHealth([at(5 * MINUTE, { severity: 'HIGH' })], 3, NOW, true, old).state).toBe(
+      'down',
+    );
+    expect(deriveHealth([at(5 * MINUTE, { severity: 'LOW' })], 3, NOW, true, old).state).toBe(
+      'degraded',
+    );
+  });
+
+  it('sorts stale after degraded and before healthy', () => {
+    const make = (name: string, state: ServiceHealth['state']) => ({
+      name,
+      health: {
+        state,
+        openCount: 0,
+        maxSeverity: null,
+        lastAnomalyMs: null,
+        incomplete: false,
+        lastPointMs: undefined,
+      },
+    });
+    const list = [make('a', 'healthy'), make('b', 'stale'), make('c', 'degraded')];
+    expect(list.sort(compareByUrgency).map((item) => item.name)).toEqual(['c', 'b', 'a']);
   });
 });

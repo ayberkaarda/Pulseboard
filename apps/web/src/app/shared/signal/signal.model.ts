@@ -1,4 +1,4 @@
-export type HealthState = 'healthy' | 'degraded' | 'down' | 'unknown';
+export type HealthState = 'healthy' | 'degraded' | 'down' | 'stale' | 'unknown';
 
 export type Severity = 'LOW' | 'MEDIUM' | 'HIGH';
 
@@ -6,6 +6,7 @@ export const HEALTH_LABELS: Readonly<Record<HealthState, string>> = {
   healthy: 'Healthy',
   degraded: 'Degraded',
   down: 'Down',
+  stale: 'Stale',
   unknown: 'No data',
 };
 

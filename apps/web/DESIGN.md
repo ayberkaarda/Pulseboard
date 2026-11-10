@@ -82,12 +82,18 @@ severity means more contrast against the surface. `--pb-flare` equals Medium.
 
 Health is a state, not an order, so it uses distinct hues **and** distinct shapes.
 
-| State    | Light     | Dark      | Glyph              |
-| -------- | --------- | --------- | ------------------ |
-| Healthy  | `#1f8a4c` | `#3fbf72` | Filled circle      |
-| Degraded | `#a86a00` | `#e2a63a` | Filled triangle    |
-| Down     | `#c8322f` | `#f2615c` | Filled square      |
-| No data  | `#727b82` | `#7c868e` | Dashed hollow ring |
+| State    | Light     | Dark      | Glyph                 |
+| -------- | --------- | --------- | --------------------- |
+| Healthy  | `#1f8a4c` | `#3fbf72` | Filled circle         |
+| Degraded | `#a86a00` | `#e2a63a` | Filled triangle       |
+| Down     | `#c8322f` | `#f2615c` | Filled square         |
+| Stale    | `#727b82` | `#7c868e` | Ring with clock hands |
+| No data  | `#727b82` | `#7c868e` | Dashed hollow ring    |
+
+Stale means no open anomaly but no sample for more than 15 minutes (`STALE_AFTER_MS`): silence is
+not health, so such a service is never shown as Healthy. The tile says "Last data 2 hours ago". Stale and No
+data share the neutral grey; the clock hands and the label tell them apart. An open anomaly always wins
+over stale. Under a truncated anomaly result a service without a loaded anomaly shows No data, not Healthy.
 
 Status colors never stand alone: every state renders glyph + text label. They are never
 reused as chart series colors.
@@ -249,8 +255,8 @@ limit responses show the wait time. Mobile collapses to the right column only.
 ### Overview: service health grid
 
 Header row: page title, a "Last updated" timestamp, and a filter row (health state,
-search by service name) in one line. Below, a summary strip of four counts (healthy,
-degraded, down, no data) using glyph + number + label. The grid: auto-fill tiles, minimum
+search by service name) in one line. Below, a summary strip of five counts (healthy,
+degraded, down, stale, no data) using glyph + number + label. The grid: auto-fill tiles, minimum
 220px, 12px gap, sorted by urgency (down, degraded, open anomalies, then name). Each tile:
 service name, health glyph + label, p95 latency and error rate in tabular figures, a 24px
 sparkline of the last hour with its expected band, and an open-anomaly count with the

@@ -24,13 +24,22 @@ import { ServicesStore } from '../services/services.store';
 import { ServiceHealth, compareByUrgency, deriveHealth } from './service-health';
 import { ServiceHealthStore } from './service-health.store';
 
+/** The newest sample of a service as epoch ms; null when it never had one. */
+function lastPointMs(service: Service): number | null | undefined {
+  if (service.lastPointAt === null) {
+    return null;
+  }
+  const ms = Date.parse(service.lastPointAt);
+  return Number.isNaN(ms) ? undefined : ms;
+}
+
 interface Tile {
   readonly service: Service;
   readonly health: ServiceHealth;
   readonly metricCount: number | null;
 }
 
-const STATES: readonly HealthState[] = ['healthy', 'degraded', 'down', 'unknown'];
+const STATES: readonly HealthState[] = ['healthy', 'degraded', 'down', 'stale', 'unknown'];
 
 /**
  * The service health board. Health comes from the unacknowledged anomalies of the last hour (one
@@ -78,6 +87,7 @@ export class OverviewPage {
           metricCount,
           nowMs,
           !this.healthStore.truncated(),
+          lastPointMs(service),
         );
         return { service, health, metricCount };
       })
@@ -90,7 +100,13 @@ export class OverviewPage {
   });
 
   protected readonly counts = computed(() => {
-    const counts: Record<HealthState, number> = { healthy: 0, degraded: 0, down: 0, unknown: 0 };
+    const counts: Record<HealthState, number> = {
+      healthy: 0,
+      degraded: 0,
+      down: 0,
+      stale: 0,
+      unknown: 0,
+    };
     for (const tile of this.tiles()) {
       counts[tile.health.state] += 1;
     }
@@ -122,10 +138,16 @@ export class OverviewPage {
   }
 
   protected describe(tile: Tile): string {
-    const { state, openCount } = tile.health;
+    const { state, openCount, lastPointMs } = tile.health;
+    if (state === 'stale' && typeof lastPointMs === 'number') {
+      return `Last data ${relativeTime(lastPointMs, this.clock.now())}`;
+    }
     if (state === 'unknown') {
       if (tile.health.incomplete) {
         return 'Too many recent anomalies to read them all, so health cannot be judged';
+      }
+      if (lastPointMs === null && tile.metricCount !== 0) {
+        return 'No data has been received yet';
       }
       return tile.metricCount === 0 ? 'No metrics defined yet' : 'No data to judge health from';
     }

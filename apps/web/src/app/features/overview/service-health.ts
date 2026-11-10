@@ -4,6 +4,13 @@ import { HealthState, SEVERITY_RANK, Severity } from '../../shared/signal/signal
 /** Health looks at unacknowledged anomalies whose window started within this long ago. */
 export const HEALTH_WINDOW_MS = 60 * 60 * 1000;
 
+/**
+ * A service whose newest sample is older than this is not called healthy: silence is not health.
+ * Fifteen minutes is three times the usual five minute reporting interval of a collector, so one
+ * missed report does not flip a tile.
+ */
+export const STALE_AFTER_MS = 15 * 60 * 1000;
+
 export interface ServiceHealth {
   readonly state: HealthState;
   /** Unacknowledged anomalies in the last hour. */
@@ -16,6 +23,8 @@ export interface ServiceHealth {
    * loaded anomaly cannot be called healthy.
    */
   readonly incomplete: boolean;
+  /** Newest sample of the service, epoch ms; null when it never had one; undefined when unknown. */
+  readonly lastPointMs: number | null | undefined;
 }
 
 /** Is this anomaly part of the "unacknowledged, last hour" set at `nowMs`? A window exactly one hour old still counts. */
@@ -30,6 +39,8 @@ export function countsForHealth(anomaly: Anomaly, nowMs: number): boolean {
  * - otherwise any unacknowledged LOW or MEDIUM: degraded (triangle)
  * - otherwise healthy (circle), but only when the service defines metrics
  * - a service with no metrics, or whose metrics are not known, has no data (dashed ring)
+ * - a service with no open anomaly whose newest sample is older than STALE_AFTER_MS is stale (clock
+ *   ring); one that never had a sample has no data. Open anomalies win over both.
  *
  * - when the anomaly data is incomplete (`complete` false) a service with no loaded anomaly is
  *   unknown, never healthy: only a full result can prove the absence of anomalies
@@ -42,6 +53,7 @@ export function deriveHealth(
   metricCount: number | null,
   nowMs: number,
   complete = true,
+  lastPointMs?: number | null,
 ): ServiceHealth {
   let openCount = 0;
   let maxRank = 0;
@@ -61,28 +73,57 @@ export function deriveHealth(
     }
   }
   if (maxSeverity === 'HIGH') {
-    return { state: 'down', openCount, maxSeverity, lastAnomalyMs, incomplete: !complete };
+    return {
+      state: 'down',
+      openCount,
+      maxSeverity,
+      lastAnomalyMs,
+      incomplete: !complete,
+      lastPointMs,
+    };
   }
   if (maxSeverity !== null) {
-    return { state: 'degraded', openCount, maxSeverity, lastAnomalyMs, incomplete: !complete };
+    return {
+      state: 'degraded',
+      openCount,
+      maxSeverity,
+      lastAnomalyMs,
+      incomplete: !complete,
+      lastPointMs,
+    };
+  }
+  const hasMetrics = metricCount !== null && metricCount > 0;
+  let state: HealthState;
+  if (hasMetrics && lastPointMs === null) {
+    state = 'unknown';
+  } else if (
+    hasMetrics &&
+    typeof lastPointMs === 'number' &&
+    nowMs - lastPointMs > STALE_AFTER_MS
+  ) {
+    state = 'stale';
+  } else {
+    state = complete && hasMetrics ? 'healthy' : 'unknown';
   }
   return {
-    state: complete && metricCount !== null && metricCount > 0 ? 'healthy' : 'unknown',
+    state,
     openCount,
     maxSeverity,
     lastAnomalyMs,
     incomplete: !complete,
+    lastPointMs,
   };
 }
 
 const URGENCY: Readonly<Record<HealthState, number>> = {
   down: 0,
   degraded: 1,
-  healthy: 2,
-  unknown: 3,
+  stale: 2,
+  healthy: 3,
+  unknown: 4,
 };
 
-/** Down first, then degraded, then by open anomalies, then by name; "no data" last. */
+/** Down first, then degraded, stale, healthy, then by open anomalies and name; "no data" last. */
 export function compareByUrgency(
   a: { name: string; health: ServiceHealth },
   b: { name: string; health: ServiceHealth },
