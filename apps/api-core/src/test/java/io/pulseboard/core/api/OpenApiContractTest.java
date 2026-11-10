@@ -66,7 +66,7 @@ class OpenApiContractTest extends IntegrationTest {
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody()
-                .jsonPath("$.info.version").isEqualTo("0.5.0")
+                .jsonPath("$.info.version").isEqualTo("0.6.0")
                 .jsonPath("$.paths['/api/v1/anomalies'].get.security[0].bearerAuth").exists()
                 .jsonPath("$.paths['/api/v1/anomalies'].get.parameters[?(@.name=='size')].schema.maximum")
                 .isEqualTo(100)
@@ -104,11 +104,12 @@ class OpenApiContractTest extends IntegrationTest {
         Map<String, List<String>> expected = Map.ofEntries(
                 Map.entry("TokenResponse", List.of("accessToken", "accessTokenExpiresAt", "refreshToken",
                         "refreshTokenExpiresAt", "role", "tenantId", "tokenType", "userId")),
-                Map.entry("ServiceResponse", List.of("createdAt", "environment", "id", "name")),
+                Map.entry("ServiceResponse", List.of("createdAt", "environment", "id", "lastPointAt", "name")),
                 Map.entry("MetricDefinitionResponse",
                         List.of("aggregation", "createdAt", "id", "name", "serviceId", "unit")),
                 Map.entry("Anomaly", List.of("acknowledgedAt", "acknowledgedBy", "createdAt", "details", "detector",
-                        "id", "metricId", "score", "serviceId", "severity", "tenantId", "windowEnd", "windowStart")),
+                        "id", "metricId", "metricName", "score", "serviceId", "serviceName", "severity", "tenantId",
+                        "windowEnd", "windowStart")),
                 Map.entry("AnomalyPage", List.of("items", "page", "size", "totalItems", "totalPages")),
                 Map.entry("AnomalyNotificationResult", List.of("accepted", "unknown")),
                 Map.entry("ApiKeyCreatedResponse", List.of("createdAt", "id", "key", "name", "prefix")),

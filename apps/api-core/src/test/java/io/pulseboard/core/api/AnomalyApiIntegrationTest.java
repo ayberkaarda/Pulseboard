@@ -77,6 +77,8 @@ class AnomalyApiIntegrationTest extends AnomalyIntegrationTest {
                 .jsonPath("$.tenantId").isEqualTo(tenant.tenantId().toString())
                 .jsonPath("$.metricId").isEqualTo(tenant.metricId().toString())
                 .jsonPath("$.serviceId").isEqualTo(tenant.serviceId().toString())
+                .jsonPath("$.metricName").isEqualTo("latency_p95_ms")
+                .jsonPath("$.serviceName").isEqualTo("checkout")
                 .jsonPath("$.windowStart").isEqualTo("2026-03-01T00:00:00Z")
                 .jsonPath("$.windowEnd").isEqualTo("2026-03-01T00:05:00Z")
                 .jsonPath("$.score").isEqualTo(0.9)

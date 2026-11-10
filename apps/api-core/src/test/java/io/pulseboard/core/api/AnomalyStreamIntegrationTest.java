@@ -80,6 +80,8 @@ class AnomalyStreamIntegrationTest extends AnomalyIntegrationTest {
                     .exchange().expectStatus().isOk()
                     .expectBody(String.class).returnResult().getResponseBody();
             assertThat(JSON.readTree(event.data())).isEqualTo(JSON.readTree(rest));
+            assertThat(JSON.readTree(event.data()).path("metricName").asText()).isEqualTo("latency_p95_ms");
+            assertThat(JSON.readTree(event.data()).path("serviceName").asText()).isEqualTo("checkout");
         }
     }
 
