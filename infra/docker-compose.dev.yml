@@ -15,6 +15,8 @@ services:
     # Source is mounted; restart api-core manually after changing Java code.
     command: ["./gradlew", "bootRun"]
     working_dir: /workspace
+    ports:
+      - "127.0.0.1:${API_CORE_HOST_PORT:-8080}:8080"
     environment:
       SPRING_PROFILES_ACTIVE: docker,local
     volumes:
@@ -22,7 +24,7 @@ services:
       - gradle-cache:/root/.gradle
     # The JDK image ships without curl; probe the actuator endpoint through bash.
     healthcheck:
-      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /actuator/health HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q '\"status\":\"UP\"' <&3"]
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8081 && printf 'GET /actuator/health HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q '\"status\":\"UP\"' <&3"]
       interval: 10s
       timeout: 5s
       retries: 60

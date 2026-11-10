@@ -25,9 +25,17 @@ make up                # build and start the stack, wait until healthy
 make down              # stop the stack
 ```
 
-`make up DEV=1` applies `infra/docker-compose.dev.yml` (hot reload, exposed Postgres/Redis ports).
+`make up DEV=1` applies `infra/docker-compose.dev.yml` (hot reload, Postgres/Redis and api-core published on 127.0.0.1 only).
 The `analytics` service is reachable only inside the Docker network.
 
 ## Make targets
 
 `up`, `down`, `test`, `test-api`, `test-analytics`, `test-web`, `lint`, `openapi-gen`.
+
+## Running locally
+
+Open the app through the web container (`http://localhost:${WEB_PORT}`, default 8081); nginx proxies `/api/` to api-core over the Docker network.
+The API is not published to the host in the default stack, because api-core trusts `X-Forwarded-For` from private Docker addresses and a host-published port would let clients spoof their IP for rate limiting.
+Port 8081 on the host is the web entry point; api-core's own management port 8081 (`/actuator/*`) exists only inside the Docker network.
+`TRUSTED_PROXIES` (api-core env, regex of trusted proxy addresses) defaults to the private Docker network ranges.
+`make up DEV=1` binds api-core to `127.0.0.1:${API_CORE_HOST_PORT:-8080}` for local development only.
