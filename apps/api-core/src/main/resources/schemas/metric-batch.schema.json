@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pulseboard.local/schemas/metric-batch.schema.json",
+  "title": "Metric Ingestion Batch",
+  "description": "A batch of metric points submitted for ingestion.",
+  "type": "object",
+  "properties": {
+    "points": {
+      "type": "array",
+      "description": "Metric points included in this ingestion batch.",
+      "minItems": 1,
+      "maxItems": 1000,
+      "items": {
+        "type": "object",
+        "properties": {
+          "metricId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The UUID of the metric definition. A metric that does not exist for the sending tenant rejects only this point."
+          },
+          "ts": {
+            "type": "string",
+            "format": "date-time",
+            "description": "The metric timestamp in RFC 3339 date-time format, with an explicit offset. Stored with microsecond precision; a timestamp outside the range provisioned for storage rejects only this point."
+          },
+          "value": {
+            "type": "number",
+            "description": "The finite numeric value recorded for the metric, with an absolute value of at most 1e100. JSON has no NaN or Infinity; a larger magnitude or a number beyond the IEEE 754 double range rejects only this point (so the bound is enforced per point by the server, not by a schema keyword that would reject the whole batch)."
+          }
+        },
+        "required": [
+          "metricId",
+          "ts",
+          "value"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "source": {
+      "type": "string",
+      "description": "The optional source identifier for this batch.",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "required": [
+    "points"
+  ],
+  "additionalProperties": false
+}
