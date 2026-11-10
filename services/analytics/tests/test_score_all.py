@@ -7,6 +7,7 @@ import numpy as np
 from redis import Redis
 from sqlalchemy import Engine, text
 
+from pulseboard_analytics.budget import Budget
 from pulseboard_analytics.clients.api_core import ApiCoreClient, NotifyResult
 from pulseboard_analytics.jobs.score_all import LOCK_KEY, RunSummary, score_all_metrics
 from pulseboard_analytics.jobs.scoring import MetricScorer, ScoreOutcome
@@ -27,7 +28,7 @@ class RecordingNotifier:
     def __init__(self) -> None:
         self.calls: list[list[StoredAnomaly]] = []
 
-    def notify(self, anomalies: list[StoredAnomaly]) -> NotifyResult:
+    def notify(self, anomalies: list[StoredAnomaly], budget: Budget | None = None) -> NotifyResult:
         self.calls.append(list(anomalies))
         return NotifyResult(delivered=len(anomalies), failed=0)
 
@@ -251,10 +252,10 @@ class _FailsFor(MetricScorer):
 
     broken: MetricRef | None = None
 
-    def score_metric(self, metric: MetricRef) -> ScoreOutcome:
+    def score_metric(self, metric: MetricRef, budget: Budget | None = None) -> ScoreOutcome:
         if metric == self.broken:
             raise RuntimeError("boom")
-        return super().score_metric(metric)
+        return super().score_metric(metric, budget)
 
 
 def test_one_failing_metric_does_not_stop_the_others(
@@ -299,7 +300,7 @@ class _BlockingScorer(MetricScorer):
     started: threading.Event
     release: threading.Event
 
-    def score_metric(self, metric: MetricRef) -> ScoreOutcome:
+    def score_metric(self, metric: MetricRef, budget: Budget | None = None) -> ScoreOutcome:
         self.started.set()
         assert self.release.wait(timeout=10)
         return ScoreOutcome(results=[], inserted=[])

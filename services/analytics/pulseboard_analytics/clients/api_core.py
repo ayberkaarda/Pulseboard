@@ -8,6 +8,7 @@ from dataclasses import dataclass
 import httpx2
 import structlog
 
+from pulseboard_analytics.budget import Budget
 from pulseboard_analytics.repositories.models import StoredAnomaly
 from pulseboard_analytics.security import SIGNATURE_HEADER, sign
 
@@ -64,6 +65,7 @@ class ApiCoreClient:
         transport: httpx2.BaseTransport | None = None,
     ) -> None:
         self._secret = secret
+        self._timeout = timeout
         self._sleep = sleep
         self._http = httpx2.Client(base_url=base_url, timeout=timeout, transport=transport)
 
@@ -71,24 +73,40 @@ class ApiCoreClient:
         """Release the underlying connection pool."""
         self._http.close()
 
-    def notify(self, anomalies: Sequence[StoredAnomaly]) -> NotifyResult:
-        """Send ``anomalies`` in batches of at most 500; a failed batch is logged, not raised."""
+    def notify(
+        self, anomalies: Sequence[StoredAnomaly], budget: Budget | None = None
+    ) -> NotifyResult:
+        """Send ``anomalies`` in batches of at most 500; a failed batch is logged, not raised.
+
+        With a ``budget`` the whole call, retries and backoff sleeps included, never takes longer
+        than the time left in it: every request gets at most that time as its timeout, and no
+        attempt starts when it is spent. A failed batch does not stop the following ones.
+        """
         delivered = 0
         failed = 0
         for start in range(0, len(anomalies), MAX_BATCH):
             batch = anomalies[start : start + MAX_BATCH]
-            if self._send(_payload(batch), len(batch)):
+            if self._send(_payload(batch), len(batch), budget):
                 delivered += len(batch)
             else:
                 failed += len(batch)
         return NotifyResult(delivered=delivered, failed=failed)
 
-    def _send(self, body: bytes, count: int) -> bool:
+    def _send(self, body: bytes, count: int, budget: Budget | None) -> bool:
         headers = {"Content-Type": "application/json", SIGNATURE_HEADER: sign(self._secret, body)}
         for attempt in range(1, MAX_ATTEMPTS + 1):
             outcome: str
+            timeout = self._timeout
+            if budget is not None:
+                left = budget.remaining_seconds()
+                if left <= 0.0:
+                    _log.warning("notify_budget_spent", attempts=attempt - 1, count=count)
+                    return False
+                timeout = min(timeout, left)
             try:
-                response = self._http.post(NOTIFY_PATH, content=body, headers=headers)
+                response = self._http.post(
+                    NOTIFY_PATH, content=body, headers=headers, timeout=timeout
+                )
             except httpx2.HTTPError as error:
                 outcome = type(error).__name__
             else:
@@ -101,6 +119,10 @@ class ApiCoreClient:
             if attempt == MAX_ATTEMPTS:
                 _log.error("notify_failed", reason=outcome, attempts=attempt, count=count)
                 return False
+            delay = BASE_DELAY_SECONDS * 2 ** (attempt - 1)
+            if budget is not None and budget.remaining_seconds() <= delay:
+                _log.warning("notify_budget_spent", attempts=attempt, count=count)
+                return False
             _log.warning("notify_retry", reason=outcome, attempt=attempt)
-            self._sleep(BASE_DELAY_SECONDS * 2 ** (attempt - 1))
+            self._sleep(delay)
         return False

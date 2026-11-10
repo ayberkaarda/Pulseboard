@@ -40,6 +40,10 @@ paths:
           description: Unknown metric
         '413':
           description: Request body too large
+        '502':
+          description: Every detector failed; nothing was analysed
+        '503':
+          description: The metric is being trained by another caller; retry later
         '422':
           description: Malformed request body
       security:

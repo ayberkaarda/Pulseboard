@@ -50,6 +50,7 @@ class Runtime:
                 anomalies=AnomalyWriter(writer_engine),
                 states=DetectorStateStore(writer_engine),
                 max_forests=settings.forest_cache_max,
+                lock_timeout_seconds=float(settings.metric_lock_timeout_seconds),
             ),
         )
 
@@ -62,6 +63,7 @@ class Runtime:
             redis=self.redis,
             lock_ttl_ms=self.settings.lock_ttl_ms,
             deadline_seconds=self.settings.score_deadline_seconds,
+            lease_margin_seconds=self.settings.lease_margin_seconds,
         )
 
     def verify_roles(self) -> None:

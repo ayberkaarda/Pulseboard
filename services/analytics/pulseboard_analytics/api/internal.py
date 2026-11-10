@@ -1,5 +1,6 @@
 """Internal endpoints guarded by the shared-secret HMAC."""
 
+import time
 from typing import Any
 from uuid import UUID
 
@@ -8,7 +9,9 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from pulseboard_analytics.budget import Budget, BudgetExhausted
 from pulseboard_analytics.detectors.base import DetectorResult
+from pulseboard_analytics.locks import MetricBusyError
 from pulseboard_analytics.runtime import Runtime
 from pulseboard_analytics.security import SIGNATURE_HEADER, verify
 
@@ -51,6 +54,8 @@ async def _read_limited_body(request: Request, limit: int) -> bytes:
         401: {"description": "Missing or invalid X-Internal-Signature"},
         404: {"description": "Unknown metric"},
         413: {"description": "Request body too large"},
+        502: {"description": "Every detector failed; nothing was analysed"},
+        503: {"description": "The metric is being trained by another caller; retry later"},
         422: {"description": "Malformed request body"},
     },
     openapi_extra={
@@ -81,7 +86,14 @@ async def score_metric(request: Request) -> ScoreResponse:
     metric = await run_in_threadpool(runtime.reader.get_metric, payload.metric_id)
     if metric is None:
         raise HTTPException(status_code=404, detail="metric not found")
-    outcome = await run_in_threadpool(runtime.scorer.score_metric, metric)
+    budget = Budget(time.monotonic() + runtime.settings.score_deadline_seconds)
+    try:
+        outcome = await run_in_threadpool(runtime.scorer.score_metric, metric, budget)
+    except MetricBusyError, BudgetExhausted:
+        raise HTTPException(status_code=503, detail="metric is busy, retry later") from None
+    if outcome.failed:
+        # Every detector failed: this is not an empty, successful analysis.
+        raise HTTPException(status_code=502, detail="analysis failed: all detectors failed")
     if outcome.inserted:
-        await run_in_threadpool(runtime.notifier.notify, outcome.inserted)
+        await run_in_threadpool(runtime.notifier.notify, outcome.inserted, budget)
     return ScoreResponse(results=outcome.results, inserted=len(outcome.inserted))
