@@ -35,7 +35,7 @@ def test_owner_credentials_as_reader_are_refused(
     message = str(error.value)
     assert "reader role 'test'" in message
     assert "is a superuser" in message
-    assert "can INSERT into anomaly" in message
+    assert "can INSERT anomaly" in message
 
 
 def test_owner_credentials_as_writer_are_refused(
