@@ -7,7 +7,12 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Keeps {@code contracts/api-core.openapi.yaml} in sync with the springdoc document the application serves.
@@ -61,7 +66,7 @@ class OpenApiContractTest extends IntegrationTest {
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody()
-                .jsonPath("$.info.version").isEqualTo("0.4.0")
+                .jsonPath("$.info.version").isEqualTo("0.5.0")
                 .jsonPath("$.paths['/api/v1/anomalies'].get.security[0].bearerAuth").exists()
                 .jsonPath("$.paths['/api/v1/anomalies'].get.parameters[?(@.name=='size')].schema.maximum")
                 .isEqualTo(100)
@@ -91,6 +96,62 @@ class OpenApiContractTest extends IntegrationTest {
                 .isEqualTo(500)
                 .jsonPath("$.components.schemas.AnomalyDetectedNotification.additionalProperties").isEqualTo(false)
                 .jsonPath("$.components.securitySchemes.internalHmac.name").isEqualTo("X-Internal-Signature");
+    }
+
+    /** Properties the server always returns are required, so generated clients can rely on them. */
+    @Test
+    void responseSchemasMarkEveryAlwaysPresentPropertyRequired() {
+        Map<String, List<String>> expected = Map.ofEntries(
+                Map.entry("TokenResponse", List.of("accessToken", "accessTokenExpiresAt", "refreshToken",
+                        "refreshTokenExpiresAt", "role", "tenantId", "tokenType", "userId")),
+                Map.entry("ServiceResponse", List.of("createdAt", "environment", "id", "name")),
+                Map.entry("MetricDefinitionResponse",
+                        List.of("aggregation", "createdAt", "id", "name", "serviceId", "unit")),
+                Map.entry("Anomaly", List.of("acknowledgedAt", "acknowledgedBy", "createdAt", "details", "detector",
+                        "id", "metricId", "score", "serviceId", "severity", "tenantId", "windowEnd", "windowStart")),
+                Map.entry("AnomalyPage", List.of("items", "page", "size", "totalItems", "totalPages")),
+                Map.entry("AnomalyNotificationResult", List.of("accepted", "unknown")),
+                Map.entry("ApiKeyCreatedResponse", List.of("createdAt", "id", "key", "name", "prefix")),
+                Map.entry("MetricPoints", List.of("aggregation", "from", "metricId", "points", "step", "to")),
+                Map.entry("MetricPointBucket", List.of("count", "ts", "value")),
+                Map.entry("IngestResponse", List.of("accepted", "rejected")),
+                Map.entry("RejectedPoint", List.of("index", "reason")),
+                Map.entry("StreamTicketResponse", List.of("expiresInSeconds", "ticket")),
+                Map.entry("Problem", List.of("status", "title", "type")));
+        byte[] body = client.get().uri("/v3/api-docs").exchange().expectStatus().isOk()
+                .expectBody(byte[].class).returnResult().getResponseBody();
+        JsonNode schemas = JsonMapper.builder().build().readTree(body).path("components").path("schemas");
+
+        expected.forEach((name, required) -> {
+            List<String> actual = new ArrayList<>();
+            schemas.path(name).path("required").forEach(node -> actual.add(node.asText()));
+            assertThat(actual).as("required members of %s", name).containsExactlyInAnyOrderElementsOf(required);
+            // A required member must be declared, and nullable members stay required but are typed as nullable.
+            required.forEach(member -> assertThat(schemas.path(name).path("properties").has(member))
+                    .as("%s.%s is declared", name, member).isTrue());
+        });
+        assertThat(schemas.path("Anomaly").path("properties").path("acknowledgedBy").path("type").toString())
+                .contains("null");
+        assertThat(schemas.path("MetricPointBucket").path("properties").path("value").path("type").toString())
+                .contains("null");
+        assertThat(schemas.path("ProblemFieldError").has("required")).isFalse();
+    }
+
+    @Test
+    void documentDescribesLogoutAndTheServiceDetail() {
+        client.get().uri("/v3/api-docs")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.paths['/api/v1/auth/logout'].post.responses['204']").exists()
+                .jsonPath("$.paths['/api/v1/auth/logout'].post.responses['400']").exists()
+                .jsonPath("$.paths['/api/v1/auth/logout'].post.responses['429']").exists()
+                .jsonPath("$.paths['/api/v1/auth/logout'].post.security").doesNotExist()
+                .jsonPath("$.components.schemas.LogoutRequest.required[0]").isEqualTo("refreshToken")
+                .jsonPath("$.paths['/api/v1/services/{serviceId}'].get.security[0].bearerAuth").exists()
+                .jsonPath("$.paths['/api/v1/services/{serviceId}'].get.responses['404']").exists()
+                .jsonPath("$.paths['/api/v1/services/{serviceId}'].get.responses['200'].content"
+                        + "['application/json'].schema['$ref']").isEqualTo("#/components/schemas/ServiceResponse");
     }
 
     /** The document must reject what the server rejects and list the errors the server can answer with. */

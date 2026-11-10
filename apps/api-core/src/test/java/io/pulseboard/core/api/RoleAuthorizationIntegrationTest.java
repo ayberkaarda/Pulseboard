@@ -47,6 +47,12 @@ class RoleAuthorizationIntegrationTest extends IntegrationTest {
         TokenResponse viewer = signIn("viewer@example.com", "VIEWER");
         assertThat(viewer.role()).isEqualTo("VIEWER");
 
+        client.get().uri("/api/v1/services/{id}", service.id())
+                .header(HttpHeaders.AUTHORIZATION, bearer(viewer.accessToken()))
+                .exchange().expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.id").isEqualTo(service.id().toString())
+                .jsonPath("$.name").isEqualTo("checkout");
         client.get().uri("/api/v1/services").header(HttpHeaders.AUTHORIZATION, bearer(viewer.accessToken()))
                 .exchange().expectStatus().isOk();
         client.get().uri("/api/v1/services/{id}/metrics", service.id())

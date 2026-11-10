@@ -43,6 +43,7 @@ class AuthClientRateLimitIntegrationTest extends IntegrationTest {
 
         // The bucket is empty for every endpoint and spelling; a broken body shows the check precedes parsing.
         for (String path : List.of("/api/v1/auth/register", "/api/v1/%61uth/register", "/api/v1/auth/%72efresh",
+                "/api/v1/auth/logout", "/api/v1/auth/%6Cogout",
                 "/api/v1/auth/refresh", "/api/v1/auth/login")) {
             HttpResponse<String> response = postJson(port, path, "{not json", "X-Forwarded-For", "203.0.113.99");
             assertThat(response.statusCode()).as(path).isEqualTo(429);

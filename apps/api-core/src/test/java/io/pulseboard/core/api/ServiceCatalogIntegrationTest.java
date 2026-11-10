@@ -39,6 +39,30 @@ class ServiceCatalogIntegrationTest extends IntegrationTest {
     }
 
     @Test
+    void serviceDetailIsTheListItemAndUnknownIdsAreProblemDetails() {
+        TokenResponse owner = registerTenant();
+        ServiceResponse payments = createService(owner.accessToken(), "payments");
+
+        client.get().uri("/api/v1/services/{id}", payments.id())
+                .header(HttpHeaders.AUTHORIZATION, bearer(owner.accessToken()))
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(ServiceResponse.class)
+                .isEqualTo(listServices(owner.accessToken()).get(0));
+        assertThat(listServices(owner.accessToken())).extracting(ServiceResponse::id).containsExactly(payments.id());
+        client.get().uri("/api/v1/services/{id}", UUID.randomUUID())
+                .header(HttpHeaders.AUTHORIZATION, bearer(owner.accessToken()))
+                .exchange()
+                .expectStatus().isNotFound()
+                .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON);
+        client.get().uri("/api/v1/services/not-a-uuid")
+                .header(HttpHeaders.AUTHORIZATION, bearer(owner.accessToken()))
+                .exchange()
+                .expectStatus().isBadRequest();
+        client.get().uri("/api/v1/services/{id}", payments.id()).exchange().expectStatus().isUnauthorized();
+    }
+
+    @Test
     void duplicateServiceNameIsConflict() {
         TokenResponse owner = registerTenant();
         createService(owner.accessToken(), "checkout");

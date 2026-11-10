@@ -58,6 +58,28 @@ class CrossTenantIdorAttackTest extends AttackTestSupport {
     }
 
     @Test
+    void foreignServiceDetailIsIndistinguishableFromMissingAndOwnDetailIsServed() {
+        HttpResponse<String> foreign = withJwt("GET", "/api/v1/services/" + victimService.id(), null);
+        UUID random = UUID.randomUUID();
+        HttpResponse<String> missing = withJwt("GET", "/api/v1/services/" + random, null);
+
+        assertThat(foreign.statusCode()).isEqualTo(404);
+        assertThat(missing.statusCode()).isEqualTo(404);
+        assertThat(foreign.body()).doesNotContain("victim-svc");
+        assertThat(foreign.headers().firstValue("Content-Type"))
+                .isEqualTo(missing.headers().firstValue("Content-Type"));
+        assertThat(foreign.body().replace(victimService.id().toString(), "ID"))
+                .isEqualTo(missing.body().replace(random.toString(), "ID"));
+        assertThat(raw("GET", "/api/v1/services/" + victimService.id(), null, API_KEY_HEADER, attackerKey.key())
+                .statusCode()).isEqualTo(404);
+
+        HttpResponse<String> own = raw("GET", "/api/v1/services/" + victimService.id(), null, "Authorization",
+                "Bearer " + victim.accessToken());
+        assertThat(own.statusCode()).isEqualTo(200);
+        assertThat(own.body()).contains("victim-svc").contains(victimService.id().toString());
+    }
+
+    @Test
     void foreignServiceMetricsAreNotFoundWithApiKey() {
         HttpResponse<String> response = raw("GET", METRICS.formatted(victimService.id()), null,
                 API_KEY_HEADER, attackerKey.key());

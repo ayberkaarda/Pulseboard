@@ -58,7 +58,8 @@ class AuthServiceTransactionBoundaryTest {
     void setUp() {
         authService = new AuthService(tenantRepository, userRepository, refreshTokenRepository, passwordEncoder,
                 accessTokenIssuer, rateLimiter, new AuthThrottlingPolicy(POLICY, POLICY),
-                Clock.fixed(NOW, ZoneOffset.UTC), new InMemoryTransactionManager(), Duration.ofDays(7));
+                Clock.fixed(NOW, ZoneOffset.UTC), new InMemoryTransactionManager(), Duration.ofDays(7),
+                Duration.ofDays(30));
         passwordEncoder.calls.clear();
         when(accessTokenIssuer.issue(any(), any()))
                 .thenReturn(new AccessTokenIssuer.IssuedAccessToken("access", NOW.plusSeconds(900)));
