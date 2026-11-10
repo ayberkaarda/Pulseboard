@@ -1,0 +1,8 @@
+*
+!pyproject.toml
+!uv.lock
+!README.md
+!pulseboard_analytics/
+!pulseboard_analytics/**
+**/__pycache__/
+**/*.py[cod]
