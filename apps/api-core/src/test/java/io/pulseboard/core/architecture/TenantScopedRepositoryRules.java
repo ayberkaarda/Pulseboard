@@ -31,6 +31,9 @@ final class TenantScopedRepositoryRules {
 
     private static final Set<String> PERSIST_METHODS = Set.of("save");
 
+    /** Records returned by the allow-listed credential lookups; they exist to find the tenant of a credential. */
+    private static final Set<String> CREDENTIAL_PROJECTIONS = Set.of("RefreshTokenOwner");
+
     private TenantScopedRepositoryRules() {
     }
 
@@ -94,6 +97,31 @@ final class TenantScopedRepositoryRules {
                     public boolean test(JavaClass javaClass) {
                         return javaClass.getFields().stream()
                                 .anyMatch(field -> field.getRawType().isEquivalentTo(TenantId.class));
+                    }
+                })
+                .should().beAnnotatedWith(TenantScoped.class);
+    }
+
+    /**
+     * Read models that are plain records (not JPA entities) are tenant-scoped data just the same: a record with a
+     * {@link TenantId} component must be marked {@link TenantScoped}, otherwise its repository would escape the
+     * rule that every query takes a tenant.
+     */
+    static ArchRule recordsWithTenantIdAreTenantScoped() {
+        return classes().that().resideInAPackage("io.pulseboard.core.domain..")
+                .and().areRecords()
+                .and(new DescribedPredicate<>("have a TenantId component") {
+                    @Override
+                    public boolean test(JavaClass javaClass) {
+                        return javaClass.getFields().stream()
+                                .anyMatch(field -> field.getRawType().isEquivalentTo(TenantId.class));
+                    }
+                })
+                .and().areNotAssignableTo(TenantId.class)
+                .and(new DescribedPredicate<JavaClass>("are not a credential lookup projection") {
+                    @Override
+                    public boolean test(JavaClass javaClass) {
+                        return !CREDENTIAL_PROJECTIONS.contains(javaClass.getSimpleName());
                     }
                 })
                 .should().beAnnotatedWith(TenantScoped.class);

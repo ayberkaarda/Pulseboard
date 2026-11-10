@@ -55,6 +55,36 @@ class OpenApiContractTest extends IntegrationTest {
                 .jsonPath("$.components.securitySchemes.apiKey.name").isEqualTo("X-Api-Key");
     }
 
+    @Test
+    void documentDescribesTheAnomalyEndpointsAndKeepsTheInternalOneApart() {
+        client.get().uri("/v3/api-docs")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.info.version").isEqualTo("0.3.0")
+                .jsonPath("$.paths['/api/v1/anomalies'].get.security[0].bearerAuth").exists()
+                .jsonPath("$.paths['/api/v1/anomalies'].get.parameters[?(@.name=='size')].schema.maximum")
+                .isEqualTo(100)
+                .jsonPath("$.paths['/api/v1/anomalies'].get.parameters[?(@.name=='size')].schema.type")
+                .isEqualTo("integer")
+                .jsonPath("$.paths['/api/v1/anomalies/{id}/ack'].post.responses['404']").exists()
+                .jsonPath("$.paths['/api/v1/anomalies/{id}/ack'].post.responses['403']").exists()
+                .jsonPath("$.paths['/api/v1/stream/anomalies'].get.responses['200'].content['text/event-stream']")
+                .exists()
+                .jsonPath("$.paths['/api/v1/stream/anomalies'].get.responses['429'].headers['Retry-After']")
+                .exists()
+                .jsonPath("$.paths['/internal/v1/anomalies/notify'].post.tags[0]").isEqualTo("internal")
+                .jsonPath("$.paths['/internal/v1/anomalies/notify'].post.security[0].internalHmac").exists()
+                .jsonPath("$.paths['/internal/v1/anomalies/notify'].post.security[0].bearerAuth").doesNotExist()
+                .jsonPath("$.paths['/internal/v1/anomalies/notify'].post.security[0].apiKey").doesNotExist()
+                .jsonPath("$.paths['/internal/v1/anomalies/notify'].post.responses['401']").exists()
+                .jsonPath("$.paths['/internal/v1/anomalies/notify'].post.responses['413']").exists()
+                .jsonPath("$.components.schemas.AnomalyDetectedNotification.properties.anomalies.maxItems")
+                .isEqualTo(500)
+                .jsonPath("$.components.schemas.AnomalyDetectedNotification.additionalProperties").isEqualTo(false)
+                .jsonPath("$.components.securitySchemes.internalHmac.name").isEqualTo("X-Internal-Signature");
+    }
+
     /** The document must reject what the server rejects and list the errors the server can answer with. */
     @Test
     void documentIsAsStrictAsTheRuntime() {

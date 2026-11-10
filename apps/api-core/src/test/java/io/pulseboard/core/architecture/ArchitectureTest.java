@@ -12,7 +12,10 @@ import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.lang.EvaluationResult;
 import io.pulseboard.core.architecture.fixtures.UnscopedServiceRepository;
+import io.pulseboard.core.domain.anomaly.AnomalyRepository;
 import io.pulseboard.core.domain.catalog.Service;
+import io.pulseboard.core.domain.shared.TenantScoped;
+import io.pulseboard.core.domain.tenancy.TenantId;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -75,7 +78,7 @@ class ArchitectureTest {
                 .map(JavaClass::getSimpleName))
                 .contains("UserRepository", "ApiKeyRepository", "RefreshTokenRepository", "ServiceRepository",
                         "MetricDefinitionRepository", "JpaServiceRepository", "JpaRefreshTokenRepository",
-                        "MetricSampleRepository")
+                        "MetricSampleRepository", "AnomalyRepository")
                 .doesNotContain("TenantRepository");
     }
 
@@ -95,6 +98,24 @@ class ArchitectureTest {
     @Test
     void entitiesWithTenantIdAreTenantScoped() {
         TenantScopedRepositoryRules.entitiesWithTenantIdAreTenantScoped().check(production);
+    }
+
+    @Test
+    void recordsWithTenantIdAreTenantScoped() {
+        TenantScopedRepositoryRules.recordsWithTenantIdAreTenantScoped().check(production);
+        assertThat(production.stream()
+                .filter(javaClass -> javaClass.isRecord() && javaClass.isAnnotatedWith(TenantScoped.class))
+                .map(JavaClass::getSimpleName))
+                .contains("Anomaly");
+    }
+
+    @Test
+    void anomalyQueriesRequireATenant() {
+        JavaClass repository = production.get(AnomalyRepository.class);
+
+        assertThat(repository.getMethods()).isNotEmpty().allSatisfy(method ->
+                assertThat(method.getRawParameterTypes()).as(method.getFullName())
+                        .anyMatch(type -> type.isEquivalentTo(TenantId.class)));
     }
 
     @Test
