@@ -11,8 +11,10 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -89,8 +91,9 @@ class StreamTicketServiceTest {
 
     @Test
     void malformedTicketsNeverReachTheStore() {
-        for (String presented : new String[] {null, "", "short", "A".repeat(42), "A".repeat(44),
-            "A".repeat(42) + "=", "A".repeat(42) + " ", "A".repeat(42) + "\n", "../" + "A".repeat(40)}) {
+        List<String> malformed = Arrays.asList(null, "", "short", "A".repeat(42), "A".repeat(44),
+                "A".repeat(42) + "=", "A".repeat(42) + " ", "A".repeat(42) + "\n", "../" + "A".repeat(40));
+        for (String presented : malformed) {
             assertThat(service.consume(presented)).as("presented: %s", presented).isEmpty();
         }
         assertThat(store.consumeCalls).isZero();

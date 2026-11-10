@@ -60,7 +60,9 @@ public class AnomalyStreamController {
                 @ApiResponse(responseCode = "200", description = "Event stream",
                         content = @Content(mediaType = MediaType.TEXT_EVENT_STREAM_VALUE,
                                 schema = @Schema(type = "string"))),
-                @ApiResponse(responseCode = "401", description = "Missing or invalid credentials, both credentials at once, or an invalid ticket",
+                @ApiResponse(responseCode = "401",
+                        description = "Missing or invalid credentials, both credentials at once, or an invalid "
+                                + "ticket",
                         content = @Content(mediaType = OpenApiConfiguration.PROBLEM_JSON,
                                 schema = @Schema(implementation = ProblemDocument.class))),
                 @ApiResponse(responseCode = "403", description = "Not authenticated as a user",
