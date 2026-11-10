@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pulseboard.local/schemas/anomaly-detected.schema.json",
+  "title": "Anomaly Detected Notification",
+  "description": "Sent by the analytics service to api-core after it stored new anomalies. api-core re-reads every id from the database and publishes only what the database holds; the other members are informational and are never trusted.",
+  "type": "object",
+  "properties": {
+    "anomalies": {
+      "type": "array",
+      "description": "The anomalies that were just inserted.",
+      "minItems": 1,
+      "maxItems": 500,
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The identifier of the stored anomaly row."
+          },
+          "tenantId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The tenant the sender believes owns the anomaly. An id that belongs to another tenant is counted as unknown."
+          },
+          "metricId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The metric the anomaly was found in."
+          },
+          "windowStart": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Inclusive start of the scored window, RFC 3339."
+          },
+          "windowEnd": {
+            "type": "string",
+            "format": "date-time",
+            "description": "End of the scored window, RFC 3339; not before windowStart."
+          },
+          "score": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Anomaly score between 0 and 1."
+          },
+          "detector": {
+            "type": "string",
+            "enum": ["ZSCORE", "ISOLATION_FOREST"],
+            "description": "The detector that produced the finding."
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["LOW", "MEDIUM", "HIGH"],
+            "description": "Severity assigned by the detector."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the anomaly row was inserted, RFC 3339."
+          }
+        },
+        "required": [
+          "id",
+          "tenantId",
+          "metricId",
+          "windowStart",
+          "windowEnd",
+          "score",
+          "detector",
+          "severity",
+          "createdAt"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "anomalies"
+  ],
+  "additionalProperties": false
+}
