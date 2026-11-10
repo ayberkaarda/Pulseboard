@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Spring Boot's default logging set-up, with query-string secrets (stream tickets, access tokens) masked in
+     every message. -->
+<configuration>
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+    <conversionRule conversionWord="m"
+                    class="io.pulseboard.core.infrastructure.logging.SecretRedactingMessageConverter"/>
+    <conversionRule conversionWord="msg"
+                    class="io.pulseboard.core.infrastructure.logging.SecretRedactingMessageConverter"/>
+    <conversionRule conversionWord="message"
+                    class="io.pulseboard.core.infrastructure.logging.SecretRedactingMessageConverter"/>
+    <include resource="org/springframework/boot/logging/logback/console-appender.xml"/>
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+</configuration>
