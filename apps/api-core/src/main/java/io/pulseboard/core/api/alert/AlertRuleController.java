@@ -84,7 +84,15 @@ public class AlertRuleController {
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
     @Operation(operationId = "createAlertRule", summary = "Create an alert rule",
             description = "OWNER and ADMIN only. A WEBHOOK target is checked against server-side request forgery "
-                    + "rules before it is stored (see the `target` field) and again for every delivery.",
+                    + "rules before it is stored (see the `target` field) and again for every delivery. "
+                    + "Deliveries are POST requests with the event's `payload` as the JSON body and the headers "
+                    + "`X-Pulseboard-Event-Id`, `X-Pulseboard-Timestamp` (Unix seconds) and "
+                    + "`X-Pulseboard-Signature`: the lower-case hex HMAC-SHA256 of `<timestamp>.<raw body>`, keyed "
+                    + "with the server's ALERT_WEBHOOK_SIGNING_SECRET. A receiver recomputes it over the bytes it "
+                    + "received, compares in constant time, rejects old timestamps and deduplicates on the event id "
+                    + "(delivery is at least once). Redirects are not followed. 2xx counts as delivered, 4xx other "
+                    + "than 408 and 429 as a permanent failure, anything else is retried (4 attempts by default, "
+                    + "10 s, 60 s and 300 s apart).",
             responses = {
                 @ApiResponse(responseCode = "201", description = "The rule was created"),
                 @ApiResponse(responseCode = "400", description = "Invalid field, unknown metric or unacceptable "
