@@ -67,9 +67,10 @@ async def score_metric(request: Request) -> ScoreResponse:
     """Score one metric over its last 24 hours, store new anomalies and notify api-core."""
     runtime: Runtime = request.app.state.runtime
     body = await _read_limited_body(request, runtime.settings.max_request_bytes)
-    if not verify(
-        runtime.settings.internal_shared_secret, body, request.headers.get(SIGNATURE_HEADER)
-    ):
+    signatures = request.headers.getlist(SIGNATURE_HEADER)
+    # Exactly one signature header is accepted, like api-core; duplicates are ambiguous.
+    signature = signatures[0] if len(signatures) == 1 else None
+    if not verify(runtime.settings.internal_shared_secret, body, signature):
         raise HTTPException(status_code=401, detail="invalid signature")
     try:
         payload = ScoreRequest.model_validate_json(body)

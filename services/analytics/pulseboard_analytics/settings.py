@@ -56,12 +56,21 @@ class Settings:
     score_interval_seconds: int = 60
     lock_ttl_ms: int = 55_000
     max_request_bytes: int = 4096
+    score_deadline_seconds: int = 50
+    forest_cache_max: int = 256
+    verify_db_roles: bool = True
 
     def __post_init__(self) -> None:
-        if len(self.internal_shared_secret) < MIN_SECRET_LENGTH:
+        # Same rule as api-core: not blank, and long enough once surrounding whitespace is gone.
+        # The exact bytes of a valid key are kept for signing.
+        secret = self.internal_shared_secret
+        if not secret.strip() or len(secret.strip()) < MIN_SECRET_LENGTH:
             raise SettingsError(
-                f"INTERNAL_SHARED_SECRET must be at least {MIN_SECRET_LENGTH} characters"
+                f"INTERNAL_SHARED_SECRET must be at least {MIN_SECRET_LENGTH} "
+                "characters excluding surrounding whitespace"
             )
+        if self.score_deadline_seconds * 1000 >= self.lock_ttl_ms:
+            raise SettingsError("SCORE_DEADLINE_SECONDS must be shorter than SCORE_LOCK_TTL_MS")
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> Settings:
@@ -76,4 +85,7 @@ class Settings:
             scheduler_enabled=_flag(source, "SCHEDULER_ENABLED", True),
             score_interval_seconds=_positive_int(source, "SCORE_INTERVAL_SECONDS", 60),
             lock_ttl_ms=_positive_int(source, "SCORE_LOCK_TTL_MS", 55_000),
+            score_deadline_seconds=_positive_int(source, "SCORE_DEADLINE_SECONDS", 50),
+            forest_cache_max=_positive_int(source, "FOREST_CACHE_MAX", 256),
+            verify_db_roles=_flag(source, "VERIFY_DB_ROLES", True),
         )
