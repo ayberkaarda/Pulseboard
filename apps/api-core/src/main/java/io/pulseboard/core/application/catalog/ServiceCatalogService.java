@@ -8,9 +8,12 @@ import io.pulseboard.core.domain.catalog.MetricDefinition;
 import io.pulseboard.core.domain.catalog.MetricDefinitionRepository;
 import io.pulseboard.core.domain.catalog.Service;
 import io.pulseboard.core.domain.catalog.ServiceRepository;
+import io.pulseboard.core.domain.metrics.MetricSampleRepository;
 import io.pulseboard.core.domain.tenancy.TenantId;
 import java.time.Clock;
+import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,23 +24,37 @@ public class ServiceCatalogService {
 
     private final ServiceRepository serviceRepository;
     private final MetricDefinitionRepository metricDefinitionRepository;
+    private final MetricSampleRepository sampleRepository;
     private final Clock clock;
 
     public ServiceCatalogService(ServiceRepository serviceRepository,
-            MetricDefinitionRepository metricDefinitionRepository, Clock clock) {
+            MetricDefinitionRepository metricDefinitionRepository, MetricSampleRepository sampleRepository,
+            Clock clock) {
         this.serviceRepository = serviceRepository;
         this.metricDefinitionRepository = metricDefinitionRepository;
+        this.sampleRepository = sampleRepository;
         this.clock = clock;
     }
 
     @Transactional(readOnly = true)
-    public List<Service> listServices(TenantId tenantId) {
-        return serviceRepository.findAllByTenantIdOrderByNameAsc(tenantId);
+    public List<ServiceSummary> listServices(TenantId tenantId) {
+        List<Service> services = serviceRepository.findAllByTenantIdOrderByNameAsc(tenantId);
+        Map<UUID, Instant> latest = sampleRepository.latestSampleByService(tenantId,
+                services.stream().map(Service::getId).toList());
+        return services.stream().map(service -> new ServiceSummary(service, latest.get(service.getId()))).toList();
     }
 
     @Transactional(readOnly = true)
-    public Service getService(TenantId tenantId, UUID serviceId) {
-        return requireService(tenantId, serviceId);
+    public ServiceSummary getService(TenantId tenantId, UUID serviceId) {
+        Service service = requireService(tenantId, serviceId);
+        return new ServiceSummary(service,
+                sampleRepository.latestSampleByService(tenantId, List.of(serviceId)).get(serviceId));
+    }
+
+    @Transactional(readOnly = true)
+    public MetricDefinition getMetric(TenantId tenantId, UUID metricId) {
+        return metricDefinitionRepository.findByIdAndTenantId(metricId, tenantId)
+                .orElseThrow(() -> new ResourceNotFoundException("Metric", metricId));
     }
 
     @Transactional

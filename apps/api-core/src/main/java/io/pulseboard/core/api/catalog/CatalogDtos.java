@@ -27,7 +27,9 @@ public final class CatalogDtos {
             @Schema(requiredMode = REQUIRED) UUID id,
             @Schema(requiredMode = REQUIRED) String name,
             @Schema(requiredMode = REQUIRED) Environment environment,
-            @Schema(requiredMode = REQUIRED) Instant createdAt) {
+            @Schema(requiredMode = REQUIRED) Instant createdAt,
+            @Schema(requiredMode = REQUIRED, nullable = true, description = "Timestamp of the newest sample over all "
+                    + "metrics of the service; null while the service has no samples.") Instant lastPointAt) {
     }
 
     public record CreateMetricRequest(

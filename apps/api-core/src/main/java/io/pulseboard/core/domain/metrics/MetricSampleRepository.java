@@ -4,7 +4,9 @@ import io.pulseboard.core.domain.catalog.Aggregation;
 import io.pulseboard.core.domain.tenancy.TenantId;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -29,4 +31,13 @@ public interface MetricSampleRepository {
      */
     List<SampleBucket> downsample(TenantId tenantId, UUID metricId, Aggregation aggregation, Instant from,
             Instant to, Duration step);
+
+    /**
+     * Returns, per service of the tenant, the timestamp of the newest sample over all metrics of that service.
+     * Services without any sample are absent from the map. Implementations must bound the work per metric
+     * (one index probe on the primary key), not scan the series.
+     *
+     * @param serviceIds services to look at; ids of other tenants are ignored
+     */
+    Map<UUID, Instant> latestSampleByService(TenantId tenantId, Collection<UUID> serviceIds);
 }

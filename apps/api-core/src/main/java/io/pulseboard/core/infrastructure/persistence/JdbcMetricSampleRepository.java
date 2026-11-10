@@ -14,6 +14,7 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
@@ -63,6 +64,24 @@ public class JdbcMetricSampleRepository implements MetricSampleRepository {
                       JOIN pg_catalog.pg_class c ON c.oid = i.inhrelid
                      WHERE i.inhparent = 'public.metric_point'::regclass) partitions
              WHERE bounds IS NOT NULL
+            """;
+
+    /**
+     * Newest sample per service: one LATERAL probe per metric on the primary key (metric_id, ts), newest first and
+     * limited to one row, so the cost is (metrics x partitions) index descents and independent of the number of
+     * samples. The tenant filter is on the metric, and the service ids are only a narrowing filter.
+     */
+    private static final String LATEST_BY_SERVICE_SQL = """
+            SELECT m.service_id, max(l.ts) AS last_ts
+              FROM metric_definition m
+             CROSS JOIN LATERAL (SELECT p.ts
+                                   FROM metric_point p
+                                  WHERE p.metric_id = m.id
+                                  ORDER BY p.ts DESC
+                                  LIMIT 1) l
+             WHERE m.tenant_id = ?
+               AND m.service_id = ANY (?)
+             GROUP BY m.service_id
             """;
 
     private static final String DOWNSAMPLE_SQL = """
@@ -192,6 +211,20 @@ public class JdbcMetricSampleRepository implements MetricSampleRepository {
             }
             throw ex;
         }
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Map<UUID, Instant> latestSampleByService(TenantId tenantId, Collection<UUID> serviceIds) {
+        if (serviceIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<UUID, Instant> latest = new HashMap<>();
+        jdbcTemplate.query(LATEST_BY_SERVICE_SQL, rs -> {
+            latest.put(rs.getObject("service_id", UUID.class),
+                    rs.getObject("last_ts", OffsetDateTime.class).toInstant());
+        }, tenantId.value(), serviceIds.toArray(UUID[]::new));
+        return latest;
     }
 
     /** Fixed SQL per aggregation; nothing user-supplied is ever concatenated into the statement. */
