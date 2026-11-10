@@ -13,7 +13,7 @@ import structlog
 from pulseboard_analytics.detectors import isolation_forest, zscore
 from pulseboard_analytics.detectors.base import Detector, DetectorResult
 from pulseboard_analytics.repositories.models import MetricRef, StoredAnomaly
-from pulseboard_analytics.repositories.reader import MetricReader
+from pulseboard_analytics.repositories.reader import MetricReader, SeriesWindow
 from pulseboard_analytics.repositories.writer import AnomalyWriter, DetectorStateStore
 
 WINDOW = timedelta(hours=24)
@@ -21,6 +21,31 @@ DEFAULT_MAX_FORESTS = 256
 _LOCK_STRIPES = 256
 
 _log = structlog.get_logger(__name__)
+
+
+def annotate_bucketed(results: list[DetectorResult], window: SeriesWindow) -> list[DetectorResult]:
+    """Mark results computed on a bucketed window.
+
+    ``details`` gains ``bucketed: true``, ``bucketSeconds`` and ``rawPoints`` (raw observations
+    in the bucket the reported point stands for). The reported timestamp and value are those of
+    the real raw point chosen for the bucket. Raw windows are returned unchanged.
+    """
+    if window.bucket_seconds is None:
+        return results
+    counts = dict(zip(window.frame["ts"], window.frame["raw_points"], strict=True))
+    return [
+        result.model_copy(
+            update={
+                "details": {
+                    **result.details,
+                    "bucketed": True,
+                    "bucketSeconds": window.bucket_seconds,
+                    "rawPoints": int(counts.get(pd.Timestamp(result.window_start), 0)),
+                }
+            }
+        )
+        for result in results
+    ]
 
 
 @dataclass(frozen=True)
@@ -75,7 +100,8 @@ class MetricScorer:
         A failure in one detector is logged and does not discard the other detector's results.
         """
         now = self.clock()
-        frame = self.reader.load_series(metric.id, now - WINDOW, now)
+        window = self.reader.load_window(metric.id, now - WINDOW, now)
+        frame = window.frame
 
         results: list[DetectorResult] = []
         try:
@@ -87,6 +113,7 @@ class MetricScorer:
         except Exception:
             _log.exception("detector_failed", detector="ISOLATION_FOREST", metric_id=str(metric.id))
 
+        results = annotate_bucketed(results, window)
         inserted = self.anomalies.insert_new(metric, results)
         _log.info(
             "metric_scored",

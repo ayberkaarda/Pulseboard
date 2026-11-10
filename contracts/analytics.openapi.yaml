@@ -92,6 +92,7 @@ components:
             - type: number
             - type: integer
             - type: string
+            - type: boolean
           type: object
           title: Details
       type: object

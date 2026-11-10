@@ -6,6 +6,9 @@ Input schema shared by every detector (a ``pandas.DataFrame``):
               therefore sorted and without duplicates.
 * ``value`` - ``float64``, finite (no NaN and no +/-inf).
 
+* ``raw_points`` (optional, int) - how many raw observations a row stands for when the window
+              was bucketed; ``train`` persists their sum as the observation count.
+
 Any other column is ignored. An empty frame with the right columns is valid.
 """
 
