@@ -24,7 +24,10 @@ public class OpenApiConfiguration {
     /** Media type of every error response (RFC 9457). */
     public static final String PROBLEM_JSON = "application/problem+json";
 
-    static final String CONTRACT_VERSION = "0.2.1";
+    /** Security scheme of service to service calls: the HMAC-SHA256 of the request body. */
+    public static final String INTERNAL_HMAC_AUTH = "internalHmac";
+
+    static final String CONTRACT_VERSION = "0.3.0";
 
     @Bean
     OpenAPI pulseboardOpenApi() {
@@ -32,8 +35,8 @@ public class OpenApiConfiguration {
                 .info(new Info()
                         .title("Pulseboard api-core")
                         .version(CONTRACT_VERSION)
-                        .description("Identity, tenancy, metric ingestion and metric queries. Errors are "
-                                + "RFC 9457 problem details (application/problem+json)."))
+                        .description("Identity, tenancy, metric ingestion and queries, anomalies and their live "
+                                + "stream. Errors are RFC 9457 problem details (application/problem+json)."))
                 .servers(List.of(new Server().url("/").description("Same origin")))
                 .components(new Components()
                         .addSecuritySchemes(BEARER_AUTH, new SecurityScheme()
@@ -45,6 +48,13 @@ public class OpenApiConfiguration {
                                 .type(SecurityScheme.Type.APIKEY)
                                 .in(SecurityScheme.In.HEADER)
                                 .name("X-Api-Key")
-                                .description("Tenant API key from /api/v1/api-keys.")));
+                                .description("Tenant API key from /api/v1/api-keys."))
+                        .addSecuritySchemes(INTERNAL_HMAC_AUTH, new SecurityScheme()
+                                .type(SecurityScheme.Type.APIKEY)
+                                .in(SecurityScheme.In.HEADER)
+                                .name("X-Internal-Signature")
+                                .description("Internal endpoints only. Lower-case hex HMAC-SHA256 of the raw "
+                                        + "request body, keyed with INTERNAL_SHARED_SECRET. Missing, malformed "
+                                        + "or wrong signatures are answered with 401.")));
     }
 }

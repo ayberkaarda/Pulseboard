@@ -5,8 +5,10 @@ import io.pulseboard.core.application.apikey.ApiKeyService;
 import io.pulseboard.core.application.ratelimit.RateLimiter;
 import io.pulseboard.core.application.tenancy.TenantContext;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
@@ -16,6 +18,7 @@ import org.springframework.security.oauth2.server.resource.authentication.JwtAut
 import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
 import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.access.intercept.AuthorizationFilter;
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.web.servlet.HandlerExceptionResolver;
 
@@ -31,9 +34,12 @@ import org.springframework.web.servlet.HandlerExceptionResolver;
  *   resolved handler (see {@code api.ratelimit}), so URL encoding variants cannot bypass it.</li>
  *   <li>All security failures are rendered as RFC 9457 problem details.</li>
  *   <li>Actuator endpoints are served on the separate management port only; the matchers below apply there.</li>
+ *   <li>{@code /internal/**} has its own chain: only a valid {@code X-Internal-Signature} authenticates there, a
+ *   JWT or API key is never looked at. Conversely, the signature header means nothing on any other path.</li>
  * </ul>
  */
 @Configuration(proxyBeanMethods = false)
+@EnableConfigurationProperties(InternalApiProperties.class)
 public class SecurityConfiguration {
 
     private static final String OWNER = "OWNER";
@@ -60,6 +66,30 @@ public class SecurityConfiguration {
     };
 
     @Bean
+    @Order(1)
+    SecurityFilterChain internalSecurityFilterChain(HttpSecurity http, InternalApiProperties properties,
+            @Qualifier("handlerExceptionResolver") HandlerExceptionResolver handlerExceptionResolver)
+            throws Exception {
+        ProblemDetailsSecurityHandler problemHandler = new ProblemDetailsSecurityHandler(handlerExceptionResolver);
+        return http
+                .securityMatcher("/internal/**")
+                .csrf(AbstractHttpConfigurer::disable)
+                .formLogin(AbstractHttpConfigurer::disable)
+                .httpBasic(AbstractHttpConfigurer::disable)
+                .logout(AbstractHttpConfigurer::disable)
+                .requestCache(AbstractHttpConfigurer::disable)
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .authorizeHttpRequests(auth -> auth.anyRequest().hasRole(InternalSignatureFilter.ROLE))
+                .exceptionHandling(ex -> ex
+                        .authenticationEntryPoint(problemHandler)
+                        .accessDeniedHandler(problemHandler))
+                .addFilterBefore(new InternalSignatureFilter(properties.sharedSecret(), properties.maxBodyBytes(),
+                        handlerExceptionResolver), AuthorizationFilter.class)
+                .build();
+    }
+
+    @Bean
+    @Order(2)
     SecurityFilterChain securityFilterChain(HttpSecurity http, JwtDecoder jwtDecoder, ApiKeyService apiKeyService,
             TenantContext tenantContext, RateLimiter rateLimiter, ApiKeyClientPolicy apiKeyClientPolicy,
             @Qualifier("handlerExceptionResolver") HandlerExceptionResolver handlerExceptionResolver)
@@ -85,6 +115,11 @@ public class SecurityConfiguration {
                         .requestMatchers("/api/v1/ingest")
                         .hasRole(ApiKeyAuthenticationToken.API_KEY_ROLE)
                         .requestMatchers("/api/v1/metrics", "/api/v1/metrics/**")
+                        .hasAnyRole(OWNER, ADMIN, VIEWER)
+                        // Acknowledging changes state, so it is narrower than the read access below; not bound
+                        // to a method for the same reason as the ingest rule.
+                        .requestMatchers("/api/v1/anomalies/*/ack").hasAnyRole(OWNER, ADMIN)
+                        .requestMatchers("/api/v1/anomalies", "/api/v1/anomalies/**", "/api/v1/stream/**")
                         .hasAnyRole(OWNER, ADMIN, VIEWER)
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(resourceServer -> resourceServer

@@ -135,6 +135,19 @@ pulseboard:
     ttl: ${API_KEY_CACHE_TTL:60s}
     # Revocation markers replace cached results immediately and outlive them by far.
     revoked-marker-ttl: ${API_KEY_CACHE_REVOKED_MARKER_TTL:24h}
+  internal:
+    # HMAC-SHA256 key shared with the analytics service; required, at least 32 characters, never defaulted.
+    shared-secret: ${INTERNAL_SHARED_SECRET:}
+    # Bodies larger than this are rejected before they are hashed. 500 notifications are about 200 KB.
+    max-body-bytes: ${INTERNAL_MAX_BODY_BYTES:524288}
+  stream:
+    # Live anomaly streams (server-sent events): concurrent connections per tenant and per instance.
+    max-per-tenant: ${ANOMALY_STREAM_MAX_PER_TENANT:5}
+    max-total: ${ANOMALY_STREAM_MAX_TOTAL:500}
+    # Keep-alive comment while a stream is idle; a dead client is noticed by the failing write.
+    heartbeat-interval: ${ANOMALY_STREAM_HEARTBEAT:30s}
+    # A stream is closed after this long (or earlier, when its access token expires); clients reconnect.
+    max-lifetime: ${ANOMALY_STREAM_MAX_LIFETIME:30m}
 
 ---
 spring:

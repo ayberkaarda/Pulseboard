@@ -1,5 +1,6 @@
 package io.pulseboard.core.api.error;
 
+import io.pulseboard.core.application.anomaly.StreamLimitExceededException;
 import io.pulseboard.core.application.auth.AuthenticationFailedException;
 import io.pulseboard.core.application.common.DependencyUnavailableException;
 import io.pulseboard.core.application.common.InvalidRequestException;
@@ -80,6 +81,13 @@ public class ProblemDetailsExceptionHandler extends ResponseEntityExceptionHandl
                 .header(HttpHeaders.RETRY_AFTER, Long.toString(ex.retryAfterSeconds()))
                 .body(problem(HttpStatus.TOO_MANY_REQUESTS, "rate-limited", "Too Many Requests",
                         "Too many requests; retry after the time given in the Retry-After header"));
+    }
+
+    @ExceptionHandler(StreamLimitExceededException.class)
+    ResponseEntity<ProblemDetail> handleStreamLimit(StreamLimitExceededException ex) {
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, "5")
+                .body(problem(HttpStatus.TOO_MANY_REQUESTS, "stream-limit", "Too Many Requests", ex.getMessage()));
     }
 
     @ExceptionHandler(RateLimiterUnavailableException.class)

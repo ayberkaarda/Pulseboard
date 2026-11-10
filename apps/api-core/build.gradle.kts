@@ -93,13 +93,15 @@ tasks.withType<JavaCompile>().configureEach {
 val contractsDir = layout.projectDirectory.dir("../../contracts")
 val openApiContract = contractsDir.file("api-core.openapi.yaml")
 val metricBatchSchemaContract = contractsDir.file("events/metric-batch.schema.json")
+val anomalyDetectedSchemaContract = contractsDir.file("events/anomaly-detected.schema.json")
 
 tasks.withType<Test>().configureEach {
     useJUnitPlatform()
     systemProperty("spring.profiles.active", "test")
     systemProperty("pulseboard.contracts.openapi", openApiContract.asFile.absolutePath)
     systemProperty("pulseboard.contracts.metric-batch-schema", metricBatchSchemaContract.asFile.absolutePath)
-    inputs.files(openApiContract, metricBatchSchemaContract).withPathSensitivity(PathSensitivity.NONE)
+    systemProperty("pulseboard.contracts.anomaly-detected-schema", anomalyDetectedSchemaContract.asFile.absolutePath)
+    inputs.files(openApiContract, metricBatchSchemaContract, anomalyDetectedSchemaContract).withPathSensitivity(PathSensitivity.NONE)
     testLogging {
         events("passed", "skipped", "failed")
         exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
