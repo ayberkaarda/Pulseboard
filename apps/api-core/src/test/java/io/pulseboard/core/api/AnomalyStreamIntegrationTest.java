@@ -11,6 +11,7 @@ import io.pulseboard.core.support.SseTestClient;
 import io.pulseboard.core.support.SseTestClient.Event;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -275,31 +276,46 @@ class AnomalyStreamIntegrationTest extends AnomalyIntegrationTest {
     }
 
     @Test
-    void aStreamEndsWhenItsAccessTokenExpires() {
+    void aStreamWorksUntilItsAccessTokenExpiresAndThenEndsAndReleasesItsSubscription() {
         TenantFixture tenant = newTenant();
-        Instant now = Instant.now();
+        StoredAnomaly stored = insertAnomaly(tenant, T0, "HIGH");
+        // JWT expiry has whole-second precision, so the value the server sees is the truncated one.
+        Instant expiry = Instant.now().plusSeconds(6).truncatedTo(ChronoUnit.SECONDS);
+        Instant issuedAt = expiry.minusSeconds(6);
         JwtClaimsSet claims = JwtClaimsSet.builder()
                 .id(UUID.randomUUID().toString())
                 .issuer(jwtProperties.issuer())
                 .audience(List.of(jwtProperties.audience()))
                 .subject(tenant.owner().userId().toString())
-                .issuedAt(now)
-                .notBefore(now)
-                .expiresAt(now.plusSeconds(3))
+                .issuedAt(issuedAt)
+                .notBefore(issuedAt)
+                .expiresAt(expiry)
                 .claim("tid", tenant.tenantId().toString())
                 .claim("role", "OWNER")
                 .build();
         String shortLived = jwtEncoder.encode(JwtEncoderParameters.from(
                 JwsHeader.with(MacAlgorithm.HS256).type("JWT").build(), claims)).getTokenValue();
 
+        int openBefore = admission.openStreams();
         try (SseTestClient stream = connect(shortLived)) {
             awaitSubscribers(tenant, 1);
 
-            stream.awaitEnd(Duration.ofSeconds(20));
+            // Before expiry the stream is fully usable: it delivers an event.
+            assertThat(notifySigned(notificationBody(stored)).statusCode()).isEqualTo(202);
+            stream.awaitEvent(e -> stored.id().toString().equals(e.id()), Duration.ofSeconds(4));
 
-            assertThat(Instant.now()).isBefore(now.plus(Duration.ofSeconds(19)));
+            // ... and it is still open at a checkpoint well before expiry, after a heartbeat that followed the event.
+            int pings = stream.comments().size();
+            await().atMost(Duration.ofSeconds(3)).until(() -> stream.comments().size() > pings);
+            assertThat(Instant.now()).as("checkpoint is before expiry").isBefore(expiry.minusMillis(500));
+            assertThat(stream.hasEnded()).as("stream still open before expiry").isFalse();
+            assertThat(subscribers(channelOf(tenant.tenantId()))).isEqualTo(1);
+
+            // After expiry the stream ends and its subscription is released within a bounded interval.
+            stream.awaitEnd(Duration.between(Instant.now(), expiry).plusSeconds(4));
+            awaitSubscribers(tenant, 0);
+            await().atMost(PATIENCE).until(() -> admission.openStreams() <= openBefore);
         }
-        awaitSubscribers(tenant, 0);
     }
 
     @Test
