@@ -6,6 +6,8 @@ import {
   anomalyTooltip,
   buildChartOption,
   chartLabel,
+  countGaps,
+  fillGaps,
   placeMarkers,
   summarizeSeries,
 } from './chart-options';
@@ -292,5 +294,54 @@ describe('withAlpha', () => {
     ['not-a-colour', 'not-a-colour'],
   ])('%s', (color, expected) => {
     expect(withAlpha(color, 0.5)).toBe(expected);
+  });
+});
+
+describe('gaps in the series', () => {
+  const HOUR = 3_600_000;
+  const sparse: MetricPoint[] = [
+    { t: T0, value: 10, count: 3 },
+    { t: T0 + HOUR, value: 12, count: 3 },
+  ];
+
+  it('fills the missing buckets with nulls so the line breaks between 12:00 and 13:00', () => {
+    const option = build({ points: sparse, fromMs: T0, toMs: T0 + HOUR + 60_000 });
+    const data = option.series[0].data as [number, number | null][];
+
+    expect(data[0]).toEqual([T0, 10]);
+    expect(data[data.length - 1]).toEqual([T0 + HOUR, 12]);
+    const between = data.slice(1, -1);
+    expect(between).toHaveLength(59);
+    expect(between.every(([, value]) => value === null)).toBe(true);
+    // No two neighbours are both real values, so no continuous segment joins the two ends.
+    const joined = data.some((row, i) => i > 0 && row[1] !== null && data[i - 1][1] !== null);
+    expect(joined).toBe(false);
+    expect((option.series[0] as unknown as { connectNulls: boolean }).connectNulls).toBe(false);
+  });
+
+  it('adds nothing when the buckets are contiguous, and never more than the API maximum', () => {
+    expect(fillGaps(points([1, 2, 3]), STEP)).toHaveLength(3);
+    const far: MetricPoint[] = [
+      { t: T0, value: 1, count: 1 },
+      { t: T0 + 100_000 * 60_000, value: 2, count: 1 },
+    ];
+    expect(fillGaps(far, STEP).length).toBeLessThanOrEqual(2002);
+  });
+
+  it('keeps the accessible summary free of invented buckets and mentions the gap', () => {
+    const label = chartLabel({
+      name: 'latency',
+      unit: 'ms',
+      aggregation: 'AVG',
+      points: sparse,
+      anomalyCount: 0,
+      stepSeconds: STEP,
+      fromMs: T0,
+      toMs: T0 + HOUR,
+    });
+    expect(label).toContain('2 points');
+    expect(label).toContain('1 gap where no data arrived');
+    expect(countGaps(sparse, STEP)).toBe(1);
+    expect(countGaps(points([1, 2, 3]), STEP)).toBe(0);
   });
 });

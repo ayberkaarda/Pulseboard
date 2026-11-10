@@ -83,6 +83,7 @@ export class MetricChartComponent {
       aggregation: this.aggregation(),
       points: this.points(),
       anomalyCount: this.anomalies().length,
+      stepSeconds: this.stepSeconds(),
       fromMs: this.fromMs(),
       toMs: this.toMs(),
     }),

@@ -146,6 +146,12 @@
             <dt>Points</dt>
             <dd>{{ stats().count }}</dd>
           </div>
+          @if (gaps() > 0) {
+            <div>
+              <dt>Gaps</dt>
+              <dd>{{ gaps() }}</dd>
+            </div>
+          }
         </dl>
         <button
           mat-stroked-button

@@ -106,6 +106,50 @@ export function summarizeSeries(points: readonly MetricPoint[]): SeriesSummary {
   return { count: points.length, min, max, last, lastAt };
 }
 
+/** Buckets filled in at most; the API itself never returns more than 2000. */
+const MAX_FILLED_BUCKETS = 2000;
+
+/**
+ * The API returns only buckets that hold samples. For drawing, the buckets missing between two real
+ * ones are added as null values, so a line with connectNulls off breaks where nothing was measured
+ * instead of joining the two ends. Only the chart gets these; the table and the summary use the
+ * real buckets. At most MAX_FILLED_BUCKETS rows are added.
+ */
+export function fillGaps(
+  points: readonly MetricPoint[],
+  stepSeconds: number,
+): readonly { t: number; value: number | null }[] {
+  const stepMs = stepSeconds * 1000;
+  const filled: { t: number; value: number | null }[] = [];
+  let added = 0;
+  points.forEach((point, index) => {
+    if (index > 0 && stepMs > 0) {
+      for (
+        let t = points[index - 1].t + stepMs;
+        t < point.t && added < MAX_FILLED_BUCKETS;
+        t += stepMs
+      ) {
+        filled.push({ t, value: null });
+        added += 1;
+      }
+    }
+    filled.push({ t: point.t, value: point.value });
+  });
+  return filled;
+}
+
+/** How many separate stretches without any bucket lie between the first and last real bucket. */
+export function countGaps(points: readonly MetricPoint[], stepSeconds: number): number {
+  const stepMs = stepSeconds * 1000;
+  let gaps = 0;
+  for (let index = 1; index < points.length; index += 1) {
+    if (points[index].t - points[index - 1].t > stepMs) {
+      gaps += 1;
+    }
+  }
+  return gaps;
+}
+
 function withUnit(value: number | null, unit: string): string {
   return value === null ? 'no value' : `${formatValue(value)}${unit ? ` ${unit}` : ''}`;
 }
@@ -117,6 +161,7 @@ export function chartLabel(input: {
   readonly aggregation: Aggregation | null;
   readonly points: readonly MetricPoint[];
   readonly anomalyCount: number;
+  readonly stepSeconds?: number;
   readonly fromMs: number;
   readonly toMs: number;
 }): string {
@@ -130,7 +175,10 @@ export function chartLabel(input: {
     input.anomalyCount === 0
       ? 'No anomalies.'
       : `${input.anomalyCount} ${input.anomalyCount === 1 ? 'anomaly' : 'anomalies'} marked.`;
-  return `${head} ${summary.count} points. Minimum ${withUnit(summary.min, input.unit)}, maximum ${withUnit(summary.max, input.unit)}, latest ${withUnit(summary.last, input.unit)}. ${anomalies}`;
+  const gaps = input.stepSeconds === undefined ? 0 : countGaps(input.points, input.stepSeconds);
+  const gapText =
+    gaps === 0 ? '' : ` ${gaps} ${gaps === 1 ? 'gap' : 'gaps'} where no data arrived.`;
+  return `${head} ${summary.count} points.${gapText} Minimum ${withUnit(summary.min, input.unit)}, maximum ${withUnit(summary.max, input.unit)}, latest ${withUnit(summary.last, input.unit)}. ${anomalies}`;
 }
 
 function escapeHtml(text: string): string {
@@ -198,7 +246,7 @@ export function buildChartOption(input: ChartInput): EChartsCoreOption {
   const aggregation = input.aggregation ? AGGREGATION_LABELS[input.aggregation] : 'Value';
   const textStyle = { color: tokens.ink3, fontFamily: tokens.font, fontSize: 12 };
   const last = summarizeSeries(points);
-  const lineData = points.map((point) => [point.t, point.value]);
+  const lineData = fillGaps(points, input.stepSeconds).map((point) => [point.t, point.value]);
 
   const areas = markers
     .filter(({ anomaly }) => anomaly.endMs > anomaly.startMs)

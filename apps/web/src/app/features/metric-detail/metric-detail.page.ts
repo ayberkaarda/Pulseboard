@@ -24,7 +24,7 @@ import { AnomalyActions } from '../anomalies/anomaly-actions.service';
 import { AnomalyRowComponent } from '../anomalies/anomaly-row.component';
 import { AnomalyStreamService } from '../anomalies/anomaly-stream.service';
 import { ServicesStore } from '../services/services.store';
-import { summarizeSeries } from './chart-options';
+import { countGaps, summarizeSeries } from './chart-options';
 import { MetricChartComponent } from './metric-chart.component';
 import { MetricsStore, ANOMALY_LIMIT } from './metrics.store';
 import { RANGE_PRESETS, RangePresetId, formatStep, resolveWindow } from './range';
@@ -104,6 +104,10 @@ export class MetricDetailPage {
   });
 
   protected readonly stats = computed(() => summarizeSeries(this.store.series().points));
+  protected readonly gaps = computed(() => {
+    const window = this.store.window();
+    return window === null ? 0 : countGaps(this.store.series().points, window.stepSeconds);
+  });
   protected readonly stepLabel = computed(() => {
     const window = this.store.window();
     return window === null ? '' : formatStep(window.stepSeconds);
