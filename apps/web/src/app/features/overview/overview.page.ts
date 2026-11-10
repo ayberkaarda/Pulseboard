@@ -77,6 +77,7 @@ export class OverviewPage {
           this.healthStore.byService().get(service.id) ?? [],
           metricCount,
           nowMs,
+          !this.healthStore.truncated(),
         );
         return { service, health, metricCount };
       })
@@ -123,6 +124,9 @@ export class OverviewPage {
   protected describe(tile: Tile): string {
     const { state, openCount } = tile.health;
     if (state === 'unknown') {
+      if (tile.health.incomplete) {
+        return 'Too many recent anomalies to read them all, so health cannot be judged';
+      }
       return tile.metricCount === 0 ? 'No metrics defined yet' : 'No data to judge health from';
     }
     if (openCount === 0) {

@@ -177,6 +177,31 @@ describe('OverviewPage', () => {
     expect(tile('checkout')).not.toHaveTextContent('Healthy');
   });
 
+  it('never calls a service healthy when the anomaly result was cut off', async () => {
+    const { http } = await renderOverview();
+    http
+      .expectOne('/api/v1/services')
+      .flush([service(CHECKOUT, 'checkout'), service(PAYMENTS, 'payments')]);
+    const [first] = anomaliesRequests(http);
+    first.flush({
+      items: [rawAnomaly({ serviceId: CHECKOUT, severity: 'HIGH', windowStart: minutesAgo(5) })],
+      totalItems: 650,
+      totalPages: 7,
+    });
+    // Five pages are read at most; the rest of the hour is never seen.
+    const rest = anomaliesRequests(http);
+    expect(rest).toHaveLength(4);
+    rest.forEach((request) => request.flush({ items: [], totalItems: 650, totalPages: 7 }));
+    await screen.findByRole('list', { name: 'Services' });
+    http.expectOne(`/api/v1/services/${CHECKOUT}/metrics`).flush([metric(CHECKOUT, 1)]);
+    http.expectOne(`/api/v1/services/${PAYMENTS}/metrics`).flush([metric(PAYMENTS, 1)]);
+
+    await within(tile('checkout')).findByText('Down');
+    expect(within(tile('payments')).queryByText('Healthy')).not.toBeInTheDocument();
+    expect(within(tile('payments')).getByText('No data')).toBeInTheDocument();
+    expect(tile('payments')).toHaveTextContent('health cannot be judged');
+  });
+
   it('explains that nothing is reporting yet', async () => {
     const { http } = await renderOverview();
     flushBoard(http, [], []);

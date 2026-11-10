@@ -17,13 +17,21 @@ import { ApiProblem, isApiError } from '../../api/problem';
 import { quietContext } from '../../core/http/api-request';
 import { SessionLifecycle } from '../../core/session/session-lifecycle';
 import { Clock } from '../../core/time/clock.service';
-import { AnomalyBus, mergeAnomaly } from '../anomalies/anomaly-bus';
+import {
+  AckLedger,
+  AnomalyBus,
+  AnomalyChangeKind,
+  ChangeBuffer,
+  mergeAnomaly,
+} from '../anomalies/anomaly-bus';
 import { AnomalyStreamService } from '../anomalies/anomaly-stream.service';
 import { HEALTH_WINDOW_MS, ServiceHealth, countsForHealth, deriveHealth } from './service-health';
 
 /** One request reads up to 100; a busy hour costs a few more pages, never more than this many in all. */
 export const MAX_PAGES = 5;
 const PAGE_SIZE = 100;
+/** The store never keeps more records than this; the oldest windows are dropped first. */
+export const MAX_STORED = 1000;
 
 type HealthStatus = 'idle' | 'loading' | 'loaded' | 'error';
 
@@ -84,6 +92,8 @@ export const ServiceHealthStore = signalStore(
     const api = inject(ApiClient);
     const clock = inject(Clock);
     let epoch = 0;
+    const ledger = new AckLedger();
+    const arrivals = new ChangeBuffer();
 
     const page = (from: string, index: number) =>
       api.get('/api/v1/anomalies', {
@@ -101,7 +111,7 @@ export const ServiceHealthStore = signalStore(
             map((rest) => {
               const rows = [first, ...rest].flatMap((body) => body.items);
               return {
-                anomalies: rows.map(toAnomaly).filter((item) => !isAcknowledged(item)),
+                anomalies: rows.map(toAnomaly),
                 truncated: (first.totalPages ?? 1) > MAX_PAGES,
               };
             }),
@@ -110,9 +120,32 @@ export const ServiceHealthStore = signalStore(
       );
     };
 
+    function apply(change: Anomaly, kind: AnomalyChangeKind): void {
+      if (store.status() === 'idle') {
+        return;
+      }
+      arrivals.push({ anomaly: change, kind });
+      const anomaly = ledger.observe({ anomaly: change, kind });
+      const list = store.anomalies();
+      const known = list.find((item) => item.id === anomaly.id);
+      if (known === undefined && kind === 'update') {
+        return;
+      }
+      const merged = mergeAnomaly(known, { anomaly, kind });
+      const rest = list.filter((item) => item.id !== merged.id);
+      // Acknowledged anomalies leave the set; a rollback brings one back. Records that aged out of
+      // the window are dropped from the store too, and the set has a hard size cap.
+      const nowMs = clock.now();
+      const kept = (isAcknowledged(merged) ? rest : [...rest, merged])
+        .filter((item) => countsForHealth(item, nowMs))
+        .sort(compareAnomalies);
+      patchState(store, { anomalies: kept.length > MAX_STORED ? kept.slice(0, MAX_STORED) : kept });
+    }
+
     const fetchHealth = rxMethod<{ epoch: number; silent: boolean }>(
       pipe(
         tap(({ silent }) => {
+          arrivals.begin();
           if (!silent || store.status() === 'idle') {
             patchState(store, { status: 'loading', problem: null });
           }
@@ -121,7 +154,12 @@ export const ServiceHealthStore = signalStore(
           read().pipe(
             map((loaded): Partial<HealthState> => ({
               status: 'loaded',
-              anomalies: [...loaded.anomalies].sort(compareAnomalies),
+              // A snapshot can predate an acknowledgement made while it was in flight.
+              anomalies: loaded.anomalies
+                .map((item) => ledger.overlay(item))
+                .filter((item) => !isAcknowledged(item))
+                .sort(compareAnomalies)
+                .slice(0, MAX_STORED),
               truncated: loaded.truncated,
               problem: null,
             })),
@@ -132,8 +170,15 @@ export const ServiceHealthStore = signalStore(
               }),
             ),
             tap((patch) => {
-              if (startedIn === epoch) {
-                patchState(store, patch);
+              if (startedIn !== epoch) {
+                return;
+              }
+              patchState(store, patch);
+              const arrived = arrivals.end();
+              if (patch.status === 'loaded') {
+                for (const change of arrived) {
+                  apply(change.anomaly, change.kind);
+                }
               }
             }),
           ),
@@ -142,6 +187,8 @@ export const ServiceHealthStore = signalStore(
     );
 
     return {
+      apply,
+
       load(): void {
         fetchHealth({ epoch, silent: false });
       },
@@ -154,28 +201,18 @@ export const ServiceHealthStore = signalStore(
       },
 
       healthOf(serviceId: string, metricCount: number | null): ServiceHealth {
-        return deriveHealth(store.byService().get(serviceId) ?? [], metricCount, clock.now());
-      },
-
-      apply(anomaly: Anomaly, kind: 'event' | 'update' | 'rollback'): void {
-        if (store.status() === 'idle') {
-          return;
-        }
-        const list = store.anomalies();
-        const known = list.find((item) => item.id === anomaly.id);
-        if (known === undefined && kind === 'update') {
-          return;
-        }
-        const merged = mergeAnomaly(known, { anomaly, kind });
-        const rest = list.filter((item) => item.id !== merged.id);
-        // Acknowledged anomalies leave the set; a rollback brings one back.
-        patchState(store, {
-          anomalies: isAcknowledged(merged) ? rest : [...rest, merged].sort(compareAnomalies),
-        });
+        return deriveHealth(
+          store.byService().get(serviceId) ?? [],
+          metricCount,
+          clock.now(),
+          !store.truncated(),
+        );
       },
 
       reset(): void {
         epoch += 1;
+        ledger.clear();
+        arrivals.discard();
         patchState(store, INITIAL);
       },
     };

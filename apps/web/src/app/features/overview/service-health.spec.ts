@@ -150,3 +150,21 @@ describe('compareByUrgency', () => {
     ]);
   });
 });
+
+describe('deriveHealth with an incomplete anomaly result', () => {
+  it('never says healthy: a service without a loaded anomaly is unknown', () => {
+    const health = deriveHealth([], 3, NOW, false);
+    expect(health.state).toBe('unknown');
+    expect(health.incomplete).toBe(true);
+  });
+
+  it('keeps what was proven: a loaded HIGH is still down', () => {
+    const health = deriveHealth([at(5 * MINUTE, { severity: 'HIGH' })], 3, NOW, false);
+    expect(health.state).toBe('down');
+    expect(health.incomplete).toBe(true);
+  });
+
+  it('is healthy again once the result is complete', () => {
+    expect(deriveHealth([], 3, NOW, true).state).toBe('healthy');
+  });
+});

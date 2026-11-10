@@ -11,6 +11,11 @@ export interface ServiceHealth {
   readonly maxSeverity: Severity | null;
   /** Window start of the newest of them, epoch ms. */
   readonly lastAnomalyMs: number | null;
+  /**
+   * The anomaly query was cut off, so the open count is a lower bound and a service without a
+   * loaded anomaly cannot be called healthy.
+   */
+  readonly incomplete: boolean;
 }
 
 /** Is this anomaly part of the "unacknowledged, last hour" set at `nowMs`? A window exactly one hour old still counts. */
@@ -26,6 +31,9 @@ export function countsForHealth(anomaly: Anomaly, nowMs: number): boolean {
  * - otherwise healthy (circle), but only when the service defines metrics
  * - a service with no metrics, or whose metrics are not known, has no data (dashed ring)
  *
+ * - when the anomaly data is incomplete (`complete` false) a service with no loaded anomaly is
+ *   unknown, never healthy: only a full result can prove the absence of anomalies
+ *
  * `metricCount` is null while unknown. An open anomaly proves data exists, so it wins over a
  * missing metric count.
  */
@@ -33,6 +41,7 @@ export function deriveHealth(
   anomalies: readonly Anomaly[],
   metricCount: number | null,
   nowMs: number,
+  complete = true,
 ): ServiceHealth {
   let openCount = 0;
   let maxRank = 0;
@@ -52,16 +61,17 @@ export function deriveHealth(
     }
   }
   if (maxSeverity === 'HIGH') {
-    return { state: 'down', openCount, maxSeverity, lastAnomalyMs };
+    return { state: 'down', openCount, maxSeverity, lastAnomalyMs, incomplete: !complete };
   }
   if (maxSeverity !== null) {
-    return { state: 'degraded', openCount, maxSeverity, lastAnomalyMs };
+    return { state: 'degraded', openCount, maxSeverity, lastAnomalyMs, incomplete: !complete };
   }
   return {
-    state: metricCount !== null && metricCount > 0 ? 'healthy' : 'unknown',
+    state: complete && metricCount !== null && metricCount > 0 ? 'healthy' : 'unknown',
     openCount,
     maxSeverity,
     lastAnomalyMs,
+    incomplete: !complete,
   };
 }
 

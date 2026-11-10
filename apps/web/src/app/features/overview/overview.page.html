@@ -31,7 +31,8 @@
       }
       @if (healthStore.truncated()) {
         <p class="pb-note">
-          More than 500 open anomalies in the last hour: counts below are lower bounds.
+          More than 500 open anomalies in the last hour: counts below are lower bounds, and a
+          service without a listed anomaly shows No data instead of Healthy.
         </p>
       }
       <ul class="summary" aria-label="Services by health">
