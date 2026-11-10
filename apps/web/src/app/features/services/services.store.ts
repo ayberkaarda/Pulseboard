@@ -1,7 +1,7 @@
 import { inject } from '@angular/core';
 import { patchState, signalStore, withHooks, withMethods, withState } from '@ngrx/signals';
 import { rxMethod } from '@ngrx/signals/rxjs-interop';
-import { catchError, map, of, pipe, switchMap, tap } from 'rxjs';
+import { catchError, from, map, mergeMap, of, pipe, switchMap, tap } from 'rxjs';
 
 import { ApiClient } from '../../api/api-client';
 import { MetricDefinition, Service, toMetricDefinition, toService } from '../../api/models';
@@ -55,6 +55,8 @@ export const ServicesStore = signalStore(
     const api = inject(ApiClient);
     // Bumped by reset(); replies from before it are dropped.
     let epoch = 0;
+    // Services whose metrics ensureMetrics has asked for and not yet received.
+    const requested = new Set<string>();
 
     return {
       // eslint-disable-next-line @typescript-eslint/no-invalid-void-type
@@ -136,8 +138,59 @@ export const ServicesStore = signalStore(
         ),
       ),
 
+      /**
+       * Loads the metric definitions of services that have none loaded or on their way. Unlike
+       * loadMetrics these loads do not cancel each other, so a page can ask for the services it
+       * shows as they appear. At most 4 requests run at once.
+       */
+      ensureMetrics(serviceIds: readonly string[]): void {
+        const startedIn = epoch;
+        const wanted = [...new Set(serviceIds)].filter(
+          (id) => !requested.has(id) && (store.metrics()[id] ?? IDLE).status === 'idle',
+        );
+        for (const id of wanted) {
+          requested.add(id);
+        }
+        from(wanted)
+          .pipe(
+            mergeMap(
+              (serviceId) =>
+                api
+                  .get('/api/v1/services/{serviceId}/metrics', {
+                    path: { serviceId },
+                    context: quietContext(),
+                  })
+                  .pipe(
+                    map((rows): Loadable<MetricDefinition> => ({
+                      status: 'loaded',
+                      items: present(rows.map(toMetricDefinition)),
+                      problem: null,
+                    })),
+                    catchError((error: unknown) =>
+                      of<Loadable<MetricDefinition>>({
+                        status: 'error',
+                        items: [],
+                        problem: problemOf(error),
+                      }),
+                    ),
+                    map((metrics) => ({ serviceId, metrics })),
+                  ),
+              4,
+            ),
+          )
+          .subscribe(({ serviceId, metrics }) => {
+            requested.delete(serviceId);
+            if (startedIn === epoch) {
+              patchState(store, (state) => ({
+                metrics: { ...state.metrics, [serviceId]: metrics },
+              }));
+            }
+          });
+      },
+
       reset(): void {
         epoch += 1;
+        requested.clear();
         patchState(store, INITIAL);
       },
     };
