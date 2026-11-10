@@ -50,7 +50,7 @@ def test_reader_lists_only_metrics_with_recent_points(owner: Engine, reader_engi
     _, recent = seed_metric(owner, noisy(10))
     _, stale = seed_metric(owner, noisy(10), end=NOW - timedelta(days=3))
 
-    active = MetricReader(reader_engine).active_metrics(NOW - timedelta(hours=24))
+    active = MetricReader(reader_engine).active_metrics(NOW - timedelta(hours=24), NOW)
 
     assert [m.id for m in active] == [recent]
     assert stale not in [m.id for m in active]
@@ -72,7 +72,7 @@ def test_reader_returns_tenant_and_none_for_unknown_metric(
 def test_series_is_sorted_utc_and_validates(owner: Engine, reader_engine: Engine) -> None:
     _, metric = seed_metric(owner, noisy(20))
 
-    frame = MetricReader(reader_engine).load_series(metric, NOW - timedelta(hours=24))
+    frame = MetricReader(reader_engine).load_series(metric, NOW - timedelta(hours=24), NOW)
 
     validate_series(frame)
     assert len(frame) == 20
@@ -84,7 +84,7 @@ def test_series_window_excludes_older_points_and_empty_window_is_valid(
 ) -> None:
     _, metric = seed_metric(owner, noisy(10), end=NOW - timedelta(days=2))
 
-    empty = MetricReader(reader_engine).load_series(metric, NOW - timedelta(hours=24))
+    empty = MetricReader(reader_engine).load_series(metric, NOW - timedelta(hours=24), NOW)
 
     validate_series(empty)
     assert len(empty) == 0
@@ -95,7 +95,7 @@ def test_late_points_inside_the_window_are_included(owner: Engine, reader_engine
     _, metric = seed_metric(owner, [1.0, 2.0, 3.0], end=NOW - timedelta(minutes=5))
     add_points(owner, metric, [9.0], end=NOW - timedelta(hours=2))
 
-    frame = MetricReader(reader_engine).load_series(metric, NOW - timedelta(hours=24))
+    frame = MetricReader(reader_engine).load_series(metric, NOW - timedelta(hours=24), NOW)
 
     assert len(frame) == 4
     assert frame["ts"].is_monotonic_increasing

@@ -234,7 +234,7 @@ def test_forest_is_retrained_when_the_window_grew_by_twenty_percent(
     assert after[0][1]["point_count"] == 130
 
 
-def test_restart_without_the_in_memory_model_trains_again(
+def test_restart_without_the_in_memory_model_refits_without_bumping_the_version(
     owner: Engine, reader_engine: Engine, writer_engine: Engine, redis_client: Redis
 ) -> None:
     seed_metric(owner, _spiky())
@@ -243,7 +243,7 @@ def test_restart_without_the_in_memory_model_trains_again(
 
     _run(reader_engine, _scorer(reader_engine, writer_engine), notifier, redis_client)
 
-    assert _rows(owner, "SELECT version FROM detector_state") == [(2,)]
+    assert _rows(owner, "SELECT version FROM detector_state") == [(1,)]
 
 
 class _FailsFor(MetricScorer):
