@@ -3,3 +3,4 @@ coverage
 .angular
 node_modules
 package-lock.json
+src/app/api/generated
