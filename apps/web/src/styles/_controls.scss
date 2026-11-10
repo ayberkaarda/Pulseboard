@@ -88,3 +88,74 @@
     color: var(--pb-ink-2);
   }
 }
+
+// Form groups of the alert rule editor: a fieldset panel, radio and chip choices.
+.pb-fieldset {
+  display: grid;
+  gap: var(--pb-space-3);
+  margin: 0;
+  padding: var(--pb-space-4) var(--pb-space-5);
+  background: var(--pb-surface);
+  border: 1px solid var(--pb-line);
+  border-radius: var(--pb-radius-md);
+
+  > legend {
+    padding: 0 var(--pb-space-2);
+    font-size: var(--pb-text-lg);
+    font-stretch: var(--pb-stretch-semi);
+    font-weight: 600;
+  }
+
+  @media (max-width: 599.98px) {
+    padding: var(--pb-space-3) var(--pb-space-4);
+  }
+}
+
+.pb-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--pb-space-2) var(--pb-space-5);
+}
+
+.pb-choice {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--pb-space-2);
+  min-height: 40px;
+  cursor: pointer;
+
+  input {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--pb-ink);
+  }
+}
+
+.pb-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--pb-space-2);
+  margin-bottom: var(--pb-space-3);
+}
+
+.pb-chip {
+  min-height: 36px;
+  padding: 0 var(--pb-space-4);
+  background: var(--pb-surface);
+  border: 1px solid var(--pb-line-strong);
+  border-radius: var(--pb-radius-pill);
+  color: var(--pb-ink);
+  font: inherit;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--pb-wash-hover);
+  }
+
+  &[aria-pressed='true'] {
+    background: var(--pb-ink);
+    border-color: var(--pb-ink);
+    color: var(--pb-ink-inverse);
+    font-weight: 600;
+  }
+}

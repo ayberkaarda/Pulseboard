@@ -9,8 +9,8 @@ export interface NavItem {
 }
 
 /**
- * Only destinations that exist are listed. Alert rules join the rail with their own route.
- * Service and metric pages belong to Overview.
+ * Only destinations that exist are listed. Service and metric pages belong to Overview; the alert
+ * rules and the alert history share one item.
  */
 export const NAV_ITEMS: readonly NavItem[] = [
   {
@@ -20,4 +20,5 @@ export const NAV_ITEMS: readonly NavItem[] = [
     matches: ['/app/overview', '/app/services', '/app/metrics'],
   },
   { label: 'Anomalies', icon: 'anomalies', link: '/app/anomalies', matches: ['/app/anomalies'] },
+  { label: 'Alert rules', icon: 'rules', link: '/app/alerts', matches: ['/app/alerts'] },
 ];

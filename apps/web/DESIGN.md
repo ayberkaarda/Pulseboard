@@ -98,6 +98,19 @@ over stale. Under a truncated anomaly result a service without a loaded anomaly 
 Status colors never stand alone: every state renders glyph + text label. They are never
 reused as chart series colors.
 
+### Alert delivery
+
+Delivery of an alert is a state with three outcomes, so it also pairs a shape with a hue and a word.
+It reuses the neutral, healthy and down hues of the health table and never appears in charts.
+
+| State   | Hue               | Glyph                | Meaning                                           |
+| ------- | ----------------- | -------------------- | ------------------------------------------------- |
+| Pending | Neutral (no data) | Pill with three dots | Waiting for delivery or for the next retry.       |
+| Sent    | Healthy           | Ring with a check    | The receiver accepted the notification.           |
+| Failed  | Down              | Ring with a cross    | Every attempt failed, or the receiver refused it. |
+
+The signal key dialog lists these three beside health and severity.
+
 ### Chart series (categorical)
 
 Fixed order, never cycled; a ninth series folds into "Other" or small multiples.
@@ -283,12 +296,16 @@ stated in text ("Live" with last-event time, or "Reconnecting, last event 14:02"
 
 ### Alert rule editor
 
-Two-column on desktop: the form on the left, a live preview on the right that replays the
-last 24 hours of the chosen metric and marks where the rule would have fired. Fields:
-name, service and metric, condition (severity at or above Low, Medium or High, sustained
-for N minutes), notify (channel), and enabled. Save is an ink button labeled "Save rule";
-the success toast says "Rule saved". Validation messages sit under each field and say how
-to fix the value.
+A dedicated route ( and ) with one column of three panels:
+what to watch (name, service, metric), alert when (a radio choice between a threshold, with
+operator and a value shown in the metric's unit, and an anomaly severity, with the severity
+glyphs) and notify (channel, target, cooldown presets plus a seconds field, enabled). The
+fields of the condition that is not chosen are removed, not hidden, and a polite status
+line says what appeared. The target field changes meaning with the channel. Save is an ink
+button labeled "Save rule"; the success toast says "Rule saved". Validation messages sit
+under each field and say how to fix the value; server messages replace the client hints.
+The live preview of the last 24 hours is not built: the API has no endpoint that replays a
+rule. Leaving a form with edits asks first ("Discard your changes?").
 
 ## 12. Implementation notes
 

@@ -35,6 +35,18 @@
     </dl>
   </section>
 
+  <section aria-labelledby="key-delivery">
+    <h3 id="key-delivery">Alert delivery</h3>
+    <dl>
+      @for (entry of delivery; track entry.value) {
+        <div class="row">
+          <dt><app-delivery-glyph [state]="entry.value" />{{ entry.label }}</dt>
+          <dd>{{ entry.meaning }}</dd>
+        </div>
+      }
+    </dl>
+  </section>
+
   <section aria-labelledby="key-chart">
     <h3 id="key-chart">Metric charts</h3>
     <dl>

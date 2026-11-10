@@ -2,7 +2,12 @@ import { ChangeDetectionStrategy, Component } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatDialogModule } from '@angular/material/dialog';
 
+import { DELIVERY_LABELS, DELIVERY_MEANINGS } from '../../features/alerts/alert-models';
 import { IconComponent } from '../../shared/icon/icon.component';
+import {
+  DeliveryGlyphComponent,
+  DeliveryState,
+} from '../../shared/signal/delivery-glyph.component';
 import { HealthGlyphComponent } from '../../shared/signal/health-glyph.component';
 import { SeverityGlyphComponent } from '../../shared/signal/severity-glyph.component';
 import {
@@ -25,6 +30,7 @@ interface KeyEntry<T> {
     MatDialogModule,
     MatButtonModule,
     IconComponent,
+    DeliveryGlyphComponent,
     HealthGlyphComponent,
     SeverityGlyphComponent,
   ],
@@ -79,4 +85,12 @@ export class SignalKeyDialogComponent {
       meaning: 'A severe deviation. Someone should act now.',
     },
   ];
+
+  protected readonly delivery: readonly KeyEntry<DeliveryState>[] = (
+    ['PENDING', 'SENT', 'FAILED'] as const
+  ).map((value) => ({
+    value,
+    label: DELIVERY_LABELS[value],
+    meaning: DELIVERY_MEANINGS[value],
+  }));
 }
