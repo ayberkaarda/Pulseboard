@@ -1,0 +1,6 @@
+# End-to-end test override, used only by scripts/e2e/run.py with its own project name.
+# It publishes api-core on the loopback interface so the test client can reach it without the web container.
+services:
+  api-core:
+    ports:
+      - "127.0.0.1:${E2E_API_PORT:?E2E_API_PORT must be set}:8080"
