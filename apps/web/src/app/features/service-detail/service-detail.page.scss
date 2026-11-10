@@ -1,0 +1,40 @@
+.metrics {
+  display: grid;
+  gap: var(--pb-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.metric {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--pb-space-2) var(--pb-space-5);
+  min-height: 56px;
+  padding: var(--pb-space-3) var(--pb-space-5);
+  background: var(--pb-surface);
+  border: 1px solid var(--pb-line);
+  border-radius: var(--pb-radius-md);
+  color: var(--pb-ink);
+  text-decoration: none;
+
+  &:hover {
+    background: var(--pb-wash-hover);
+  }
+}
+
+.name {
+  font-weight: 600;
+}
+
+.meta {
+  color: var(--pb-ink-2);
+  font-size: var(--pb-text-sm);
+}
+
+.back {
+  color: var(--pb-ink);
+  font-weight: 560;
+}

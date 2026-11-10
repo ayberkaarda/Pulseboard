@@ -52,6 +52,7 @@ ul {
   font: inherit;
   font-weight: 520;
   text-align: start;
+  text-decoration: none;
   cursor: pointer;
   transition: background-color var(--pb-duration-quick) var(--pb-ease-standard);
 
@@ -101,31 +102,8 @@ ul {
   outline: none;
 }
 
-.page-head {
-  margin-bottom: var(--pb-space-6);
-}
-
-.page-title {
-  font-size: var(--pb-text-3xl);
-  line-height: 1.1;
-  font-weight: 600;
-  font-stretch: var(--pb-stretch-condensed);
-  letter-spacing: -0.02em;
-}
-
-.page-summary {
-  max-width: 60ch;
-  margin-top: var(--pb-space-2);
-  color: var(--pb-ink-2);
-  font-size: var(--pb-text-lg);
-}
-
 @media (max-width: 959.98px) {
   .main {
     padding: var(--pb-space-5) var(--pb-space-4) var(--pb-space-7);
-  }
-
-  .page-title {
-    font-size: var(--pb-text-2xl);
   }
 }

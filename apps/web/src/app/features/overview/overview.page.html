@@ -1,0 +1,42 @@
+<app-page-head
+  title="Overview"
+  summary="Every service on one board, sorted by what needs attention first."
+/>
+
+@switch (store.services().status) {
+  @case ('error') {
+    @if (store.services().problem; as problem) {
+      <app-load-error
+        heading="Could not load your services"
+        [problem]="problem"
+        (retry)="store.loadServices()"
+      />
+    }
+  }
+  @case ('loaded') {
+    @if (store.services().items.length === 0) {
+      <app-empty-state
+        heading="No services reporting yet"
+        body="Services appear here after their first heartbeat. Each tile shows health, latency and open anomalies."
+      />
+    } @else {
+      <ul class="services" aria-label="Services">
+        @for (service of store.services().items; track service.id) {
+          <li>
+            <a class="service" [routerLink]="['/app/services', service.id]">
+              <span class="name">{{ service.name }}</span>
+              <span class="env">{{ service.environment }}</span>
+              <span class="health">
+                <app-health-glyph state="unknown" />
+                {{ unknownLabel }}
+              </span>
+            </a>
+          </li>
+        }
+      </ul>
+    }
+  }
+  @default {
+    <app-skeleton-rows label="Loading services" />
+  }
+}

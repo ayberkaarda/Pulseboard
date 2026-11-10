@@ -1,0 +1,50 @@
+@if (missing()) {
+  <app-page-head title="Service not found" />
+  <app-empty-state
+    heading="This service does not exist"
+    body="It may have been removed, or it belongs to another workspace."
+  >
+    <a class="back" routerLink="/app/overview">Back to overview</a>
+  </app-empty-state>
+} @else {
+  <app-page-head [title]="service()?.name ?? 'Service'" [summary]="summary()" />
+
+  @switch (metrics().status) {
+    @case ('error') {
+      @if (metrics().problem; as problem) {
+        <app-load-error
+          heading="Could not load the metrics"
+          [problem]="problem"
+          (retry)="reload()"
+        />
+      }
+    }
+    @case ('loaded') {
+      @if (metrics().items.length === 0) {
+        <app-empty-state
+          heading="No metrics defined"
+          body="Define a metric for this service, then send values for it to start its timeline."
+        />
+      } @else {
+        <ul class="metrics" aria-label="Metrics">
+          @for (metric of metrics().items; track metric.id) {
+            <li>
+              <a class="metric" [routerLink]="['/app/metrics', metric.id]">
+                <span class="name">{{ metric.name }}</span>
+                <span class="meta">
+                  {{ aggregationLabels[metric.aggregation] }}
+                  @if (metric.unit) {
+                    , {{ metric.unit }}
+                  }
+                </span>
+              </a>
+            </li>
+          }
+        </ul>
+      }
+    }
+    @default {
+      <app-skeleton-rows label="Loading metrics" />
+    }
+  }
+}

@@ -15,18 +15,17 @@
 
     <nav class="nav" aria-label="Primary">
       <ul>
-        @for (section of sections; track section.id) {
+        @for (item of navItems; track item.link) {
           <li>
-            <button
-              type="button"
+            <a
               class="nav-item"
-              [class.active]="section.id === activeId()"
-              [attr.aria-current]="section.id === activeId() ? 'page' : null"
-              (click)="selectSection(section.id)"
+              [routerLink]="item.link"
+              [class.active]="isActive(item)"
+              [attr.aria-current]="isActive(item) ? 'page' : null"
             >
-              <app-icon [name]="section.icon" />
-              <span>{{ section.label }}</span>
-            </button>
+              <app-icon [name]="item.icon" />
+              <span>{{ item.label }}</span>
+            </a>
           </li>
         }
       </ul>
@@ -38,6 +37,10 @@
         <span>Signal key</span>
       </button>
       <app-theme-switch />
+      <button type="button" class="nav-item" (click)="signOut()">
+        <app-icon name="logout" />
+        <span>Sign out</span>
+      </button>
     </div>
   </mat-sidenav>
 
@@ -59,19 +62,6 @@
     }
 
     <main #main id="main" class="main" tabindex="-1">
-      <header class="page-head">
-        <h1 class="page-title">{{ active().label }}</h1>
-        <p class="page-summary">{{ active().summary }}</p>
-      </header>
-
-      <app-empty-state [heading]="active().emptyTitle" [body]="active().emptyBody">
-        @if (active().id === 'overview') {
-          <button mat-flat-button type="button" (click)="openSignalKey()">
-            Read the signal key
-          </button>
-        }
-      </app-empty-state>
-
       <router-outlet />
     </main>
   </mat-sidenav-content>

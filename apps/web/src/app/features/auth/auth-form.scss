@@ -1,0 +1,48 @@
+:host {
+  display: block;
+}
+
+.title {
+  font-size: var(--pb-text-2xl);
+  font-stretch: var(--pb-stretch-condensed);
+  letter-spacing: -0.02em;
+}
+
+.lede {
+  margin: var(--pb-space-2) 0 var(--pb-space-5);
+  color: var(--pb-ink-2);
+}
+
+form {
+  display: grid;
+  gap: var(--pb-space-1);
+}
+
+mat-form-field {
+  width: 100%;
+}
+
+.form-error {
+  margin: 0 0 var(--pb-space-3);
+  padding: var(--pb-space-3) var(--pb-space-4);
+  border: 1px solid var(--pb-flare);
+  border-radius: var(--pb-radius-sm);
+  color: var(--pb-ink);
+}
+
+.submit {
+  width: 100%;
+  min-height: 44px;
+  margin-top: var(--pb-space-2);
+}
+
+.alternate {
+  margin-top: var(--pb-space-5);
+  color: var(--pb-ink-2);
+  text-align: center;
+
+  a {
+    color: var(--pb-ink);
+    font-weight: 600;
+  }
+}
