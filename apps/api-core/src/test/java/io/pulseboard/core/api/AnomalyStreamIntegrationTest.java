@@ -9,14 +9,20 @@ import io.pulseboard.core.infrastructure.security.JwtProperties;
 import io.pulseboard.core.support.AnomalyIntegrationTest;
 import io.pulseboard.core.support.SseTestClient;
 import io.pulseboard.core.support.SseTestClient.Event;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.data.redis.connection.MessageListener;
+import org.springframework.data.redis.listener.ChannelTopic;
+import org.springframework.data.redis.listener.RedisMessageListenerContainer;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
@@ -35,6 +41,10 @@ class AnomalyStreamIntegrationTest extends AnomalyIntegrationTest {
 
     @Autowired
     private StreamAdmission admission;
+
+    @Autowired
+    @Qualifier("anomalyListenerContainer")
+    private RedisMessageListenerContainer listenerContainer;
 
     @Autowired
     private JwtEncoder jwtEncoder;
@@ -202,6 +212,56 @@ class AnomalyStreamIntegrationTest extends AnomalyIntegrationTest {
             await().atMost(PATIENCE).until(() -> stream.events().size() == 5);
             assertThat(stream.events()).extracting(Event::id)
                     .containsExactlyElementsOf(stored.stream().map(a -> a.id().toString()).toList());
+        }
+    }
+
+    @Test
+    void aLargeBatchArrivesInWindowOrderOnEveryStreamOfTheTenant() {
+        TenantFixture tenant = newTenant();
+        List<StoredAnomaly> stored = new ArrayList<>();
+        for (int i = 0; i < 200; i++) {
+            stored.add(insertAnomaly(tenant, T0.plusSeconds(60L * i), "LOW"));
+        }
+        try (SseTestClient one = connect(tenant.ownerToken()); SseTestClient two = connect(tenant.ownerToken())) {
+            awaitSubscribers(tenant, 1);
+
+            notifySigned(notificationBody(stored.reversed().toArray(StoredAnomaly[]::new)));
+
+            await().atMost(PATIENCE).until(() -> one.events().size() == 200 && two.events().size() == 200);
+            List<String> expected = stored.stream().map(a -> a.id().toString()).toList();
+            assertThat(one.events()).extracting(Event::id).containsExactlyElementsOf(expected);
+            assertThat(two.events()).extracting(Event::id).containsExactlyElementsOf(expected);
+        }
+    }
+
+    @Test
+    void theListenerContainerDeliversTheMessagesOfOneChannelOneAtATimeInPublishOrder() {
+        String channel = "anomalies:ordering-" + UUID.randomUUID();
+        List<String> finished = Collections.synchronizedList(new ArrayList<>());
+        MessageListener listener = (message, pattern) -> {
+            String body = new String(message.getBody(), StandardCharsets.UTF_8);
+            if (body.equals("first")) {
+                // A slow first handler: with parallel dispatch the second message overtakes it.
+                try {
+                    Thread.sleep(300);
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+            finished.add(body);
+        };
+        ChannelTopic topic = new ChannelTopic(channel);
+        listenerContainer.addMessageListener(listener, topic);
+        try {
+            await().atMost(PATIENCE).until(() -> subscribers(channel) == 1);
+
+            redis.convertAndSend(channel, "first");
+            redis.convertAndSend(channel, "second");
+
+            await().atMost(PATIENCE).until(() -> finished.size() == 2);
+            assertThat(finished).containsExactly("first", "second");
+        } finally {
+            listenerContainer.removeMessageListener(listener, topic);
         }
     }
 
