@@ -90,11 +90,13 @@ describe('SessionStore', () => {
       expect(session.isAuthenticated()).toBe(true);
     });
 
-    it('refuses a token response that lacks required fields', async () => {
+    it('refuses a token response whose timestamps cannot be read', async () => {
       const { session, http } = setup();
 
       const attempt = session.login(LOGIN);
-      http.expectOne('/api/v1/auth/login').flush({ ...tokenResponse(1), accessToken: undefined });
+      http
+        .expectOne('/api/v1/auth/login')
+        .flush({ ...tokenResponse(1), accessTokenExpiresAt: 'soon' });
 
       await expect(attempt).rejects.toThrow('incomplete');
       expect(session.isAuthenticated()).toBe(false);
@@ -268,6 +270,36 @@ describe('SessionStore', () => {
   });
 
   describe('logout', () => {
+    it('revokes the refresh token on the server without waiting for the answer', async () => {
+      const { session, http } = setup();
+      await signIn(session, http);
+
+      session.logout();
+
+      expect(session.isAuthenticated()).toBe(false);
+      const request = http.expectOne('/api/v1/auth/logout');
+      expect(request.request.body).toEqual({ refreshToken: 'refresh-1' });
+      expect(request.request.headers.has('Authorization')).toBe(false);
+    });
+
+    it('signs out locally even when the server call fails, and stays silent', async () => {
+      const { session, http } = setup();
+      await signIn(session, http);
+
+      session.logout();
+      http.expectOne('/api/v1/auth/logout').error(new ProgressEvent('error'));
+      await settle();
+
+      expect(session.isAuthenticated()).toBe(false);
+      expect(session.refreshToken()).toBeNull();
+    });
+
+    it('sends nothing when there is no session', () => {
+      const { session, http } = setup();
+      session.logout();
+      http.expectNone('/api/v1/auth/logout');
+    });
+
     it('clears tokens, storage and every registered store', async () => {
       const { session, http, lifecycle } = setup();
       const resetStore = jest.fn();

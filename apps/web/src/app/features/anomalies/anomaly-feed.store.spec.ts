@@ -86,14 +86,13 @@ describe('AnomalyFeedStore', () => {
     metric.flush(page([]));
   });
 
-  it('drops rows that are incomplete and orders the rest newest window first', () => {
+  it('orders the rows newest window first', () => {
     const { store, http } = setup();
     store.load();
     listRequest(http).flush(
       page([
         rawAnomaly({ id: 'a', windowStart: '2026-05-01T10:00:00Z' }),
         rawAnomaly({ id: 'b', windowStart: '2026-05-01T12:00:00Z' }),
-        rawAnomaly({ id: 'c', serviceId: undefined }),
         rawAnomaly({ id: 'd', windowStart: '2026-05-01T11:00:00Z' }),
       ]),
     );

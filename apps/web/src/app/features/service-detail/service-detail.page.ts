@@ -16,8 +16,7 @@ const AGGREGATION_LABELS = {
 } as const;
 
 /**
- * One service and the metrics it defines. The contract has no "get service" call, so the name comes
- * from the services list. TODO(4b): chart each metric against its expected range.
+ * One service and the metrics it defines. The name and environment come from GET /services/{id}.
  */
 @Component({
   selector: 'app-service-detail-page',
@@ -38,9 +37,10 @@ export class ServiceDetailPage {
 
   protected readonly store = inject(ServicesStore);
 
-  protected readonly service = computed(() =>
-    this.store.services().items.find((item) => item.id === this.id()),
+  protected readonly detail = computed(
+    () => this.store.details()[this.id()] ?? { status: 'idle', items: [], problem: null },
   );
+  protected readonly service = computed(() => this.detail().items[0]);
   protected readonly metrics = computed(
     () => this.store.metrics()[this.id()] ?? { status: 'idle', items: [], problem: null },
   );
@@ -48,19 +48,15 @@ export class ServiceDetailPage {
     const environment = this.service()?.environment;
     return environment ? `${environment} environment` : undefined;
   });
-  /** The services list is loaded and this id is not in it (or belongs to another tenant). */
-  protected readonly missing = computed(
-    () => this.store.services().status === 'loaded' && this.service() === undefined,
-  );
+  /** The server answered 404: no such service in this workspace. */
+  protected readonly missing = computed(() => this.detail().problem?.status === 404);
 
   constructor() {
     effect(() => {
       const id = this.id();
+      this.store.loadService(id);
       this.store.loadMetrics(id);
     });
-    if (this.store.services().status === 'idle') {
-      this.store.loadServices();
-    }
   }
 
   protected describe(metric: MetricDefinition): string {
@@ -69,7 +65,7 @@ export class ServiceDetailPage {
   }
 
   protected reload(): void {
-    this.store.loadServices();
+    this.store.loadService(this.id());
     this.store.loadMetrics(this.id());
   }
 }

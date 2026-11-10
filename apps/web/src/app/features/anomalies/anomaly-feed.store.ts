@@ -139,10 +139,7 @@ export const AnomalyFeedStore = signalStore(
             .pipe(
               map((body): Partial<FeedState> => ({
                 status: 'loaded',
-                items: (body.items ?? [])
-                  .map(toAnomaly)
-                  .filter((item): item is Anomaly => item !== null)
-                  .sort(compareAnomalies),
+                items: body.items.map(toAnomaly).sort(compareAnomalies),
                 totalItems: body.totalItems ?? 0,
                 totalPages: body.totalPages ?? 0,
                 problem: null,

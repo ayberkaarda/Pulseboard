@@ -55,11 +55,7 @@ export class AnomalyActions {
           context: quietContext(),
         }),
       );
-      const confirmed = toAnomaly(response);
-      if (confirmed === null) {
-        throw new Error('The acknowledgement response is incomplete');
-      }
-      this.bus.publish(confirmed);
+      this.bus.publish(toAnomaly(response));
       return true;
     } catch (error) {
       this.bus.publish(anomaly, 'rollback');

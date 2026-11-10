@@ -99,11 +99,9 @@ export const ServiceHealthStore = signalStore(
           const more = Array.from({ length: Math.max(0, pages - 1) }, (_, i) => page(from, i + 1));
           return (more.length === 0 ? of([]) : forkJoin(more)).pipe(
             map((rest) => {
-              const rows = [first, ...rest].flatMap((body) => body.items ?? []);
+              const rows = [first, ...rest].flatMap((body) => body.items);
               return {
-                anomalies: rows
-                  .map(toAnomaly)
-                  .filter((item): item is Anomaly => item !== null && !isAcknowledged(item)),
+                anomalies: rows.map(toAnomaly).filter((item) => !isAcknowledged(item)),
                 truncated: (first.totalPages ?? 1) > MAX_PAGES,
               };
             }),

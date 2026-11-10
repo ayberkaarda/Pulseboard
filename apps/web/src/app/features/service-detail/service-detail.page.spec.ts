@@ -43,7 +43,7 @@ describe('ServiceDetailPage', () => {
   it('names the service and lists its metrics with links to the metric page', async () => {
     const { http } = await renderDetail();
 
-    http.expectOne('/api/v1/services').flush([SERVICE]);
+    http.expectOne(`/api/v1/services/${ID}`).flush(SERVICE);
     http.expectOne(`/api/v1/services/${ID}/metrics`).flush([METRIC]);
 
     expect(await screen.findByRole('heading', { level: 1, name: 'checkout' })).toBeInTheDocument();
@@ -57,7 +57,7 @@ describe('ServiceDetailPage', () => {
   it('says so when the service is not in the workspace', async () => {
     const { http } = await renderDetail();
 
-    http.expectOne('/api/v1/services').flush([]);
+    http.expectOne(`/api/v1/services/${ID}`).flush(null, { status: 404, statusText: 'Not Found' });
     http
       .expectOne(`/api/v1/services/${ID}/metrics`)
       .flush(null, { status: 404, statusText: 'Not Found' });
@@ -73,7 +73,7 @@ describe('ServiceDetailPage', () => {
 
   it('offers a retry when the metrics fail to load', async () => {
     const { http } = await renderDetail();
-    http.expectOne('/api/v1/services').flush([SERVICE]);
+    http.expectOne(`/api/v1/services/${ID}`).flush(SERVICE);
 
     http.expectOne(`/api/v1/services/${ID}/metrics`).flush(null, { status: 503, statusText: 'x' });
 

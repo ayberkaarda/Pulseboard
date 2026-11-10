@@ -54,17 +54,6 @@ describe('ServicesStore', () => {
     expect(store.services().items.map((service) => service.name)).toEqual(['checkout', 'search']);
   });
 
-  it('drops entries the UI cannot present instead of failing the page', () => {
-    const { store, http } = setup();
-    store.loadServices();
-
-    http
-      .expectOne('/api/v1/services')
-      .flush([SERVICE_A, { id: 'x' }, { ...SERVICE_B, environment: 'MOON' }]);
-
-    expect(store.services().items).toHaveLength(1);
-  });
-
   it('records the problem on failure and recovers on retry', () => {
     const { store, http } = setup();
     store.loadServices();
@@ -105,7 +94,7 @@ describe('ServicesStore', () => {
     expect(store.metrics()[SERVICE_A.id].status).toBe('loading');
     http
       .expectOne(`/api/v1/services/${SERVICE_A.id}/metrics`)
-      .flush([metric(SERVICE_A.id, 'latency'), { name: 'broken' }]);
+      .flush([metric(SERVICE_A.id, 'latency')]);
 
     const loaded = store.metrics()[SERVICE_A.id];
     expect(loaded.status).toBe('loaded');

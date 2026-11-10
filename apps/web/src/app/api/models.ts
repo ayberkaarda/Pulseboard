@@ -6,22 +6,9 @@ type Schemas = components['schemas'];
 export type Environment = NonNullable<Schemas['ServiceResponse']['environment']>;
 export type Aggregation = NonNullable<Schemas['MetricDefinitionResponse']['aggregation']>;
 
-/** The contract leaves every response field optional; these are the values the UI requires. */
-export interface Service {
-  readonly id: string;
-  readonly name: string;
-  readonly environment: Environment;
-  readonly createdAt: string;
-}
-
-export interface MetricDefinition {
-  readonly id: string;
-  readonly serviceId: string;
-  readonly name: string;
-  readonly unit: string;
-  readonly aggregation: Aggregation;
-  readonly createdAt: string;
-}
+/** Response shapes as the contract defines them (every always-present field is required there). */
+export type Service = Schemas['ServiceResponse'];
+export type MetricDefinition = Schemas['MetricDefinitionResponse'];
 
 export interface TokenPair {
   readonly accessToken: string;
@@ -35,45 +22,11 @@ export interface TokenPair {
   readonly role: string;
 }
 
-const ENVIRONMENTS: readonly string[] = ['PROD', 'STAGING', 'DEV'];
-const AGGREGATIONS: readonly string[] = ['AVG', 'SUM', 'MAX', 'P95'];
-
-function filled(value: unknown): value is string {
-  return typeof value === 'string' && value.length > 0;
-}
-
-export function toService(raw: Schemas['ServiceResponse']): Service | null {
-  const { id, name, environment, createdAt } = raw;
-  return filled(id) && filled(name) && filled(environment) && ENVIRONMENTS.includes(environment)
-    ? { id, name, environment, createdAt: createdAt ?? '' }
-    : null;
-}
-
-export function toMetricDefinition(
-  raw: Schemas['MetricDefinitionResponse'],
-): MetricDefinition | null {
-  const { id, serviceId, name, unit, aggregation, createdAt } = raw;
-  return filled(id) &&
-    filled(serviceId) &&
-    filled(name) &&
-    filled(aggregation) &&
-    AGGREGATIONS.includes(aggregation)
-    ? { id, serviceId, name, unit: unit ?? '', aggregation, createdAt: createdAt ?? '' }
-    : null;
-}
-
-/** Null when the token response lacks a field the session depends on. */
+/** Null only when a timestamp cannot be read, which the session cannot work without. */
 export function toTokenPair(raw: Schemas['TokenResponse']): TokenPair | null {
-  const access = Date.parse(raw.accessTokenExpiresAt ?? '');
-  const refresh = Date.parse(raw.refreshTokenExpiresAt ?? '');
-  if (
-    !filled(raw.accessToken) ||
-    !filled(raw.refreshToken) ||
-    !filled(raw.userId) ||
-    !filled(raw.tenantId) ||
-    Number.isNaN(access) ||
-    Number.isNaN(refresh)
-  ) {
+  const access = Date.parse(raw.accessTokenExpiresAt);
+  const refresh = Date.parse(raw.refreshTokenExpiresAt);
+  if (Number.isNaN(access) || Number.isNaN(refresh)) {
     return null;
   }
   return {
@@ -83,7 +36,7 @@ export function toTokenPair(raw: Schemas['TokenResponse']): TokenPair | null {
     refreshTokenExpiresAt: refresh,
     userId: raw.userId,
     tenantId: raw.tenantId,
-    role: raw.role ?? 'VIEWER',
+    role: raw.role,
   };
 }
 
@@ -100,7 +53,7 @@ export interface Anomaly {
   readonly metricId: string;
   readonly serviceId: string;
   readonly severity: Severity;
-  readonly detector: string;
+  readonly detector: Detector;
   /** Between 0 and 1. */
   readonly score: number;
   readonly windowStart: string;
@@ -113,42 +66,68 @@ export interface Anomaly {
   readonly details: Readonly<Record<string, unknown>>;
 }
 
-/** Null when the row lacks a field the UI depends on (the contract leaves every field optional). */
-export function toAnomaly(raw: AnomalyRaw): Anomaly | null {
-  const { id, metricId, serviceId, severity, detector, score, windowStart, windowEnd } = raw;
+/** An anomaly from a REST response; the contract guarantees its fields. */
+export function toAnomaly(raw: AnomalyRaw): Anomaly {
+  const startMs = Date.parse(raw.windowStart);
+  const endMs = Date.parse(raw.windowEnd);
+  return {
+    id: raw.id,
+    metricId: raw.metricId,
+    serviceId: raw.serviceId,
+    severity: raw.severity,
+    detector: raw.detector,
+    score: raw.score,
+    windowStart: raw.windowStart,
+    windowEnd: raw.windowEnd,
+    startMs,
+    endMs: Number.isNaN(endMs) ? startMs : endMs,
+    createdAt: raw.createdAt,
+    acknowledgedAt: raw.acknowledgedAt,
+    acknowledgedBy: raw.acknowledgedBy,
+    details: raw.details,
+  };
+}
+
+function text(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0;
+}
+
+/**
+ * An anomaly from a stream event. Event data is parsed JSON, not a typed response, so nothing is
+ * assumed: null unless every field the UI relies on is present and valid.
+ */
+export function parseStreamAnomaly(data: unknown): Anomaly | null {
+  if (typeof data !== 'object' || data === null) {
+    return null;
+  }
+  const raw = data as Record<string, unknown>;
   if (
-    !filled(id) ||
-    !filled(metricId) ||
-    !filled(serviceId) ||
-    !filled(severity) ||
-    !SEVERITIES.includes(severity) ||
-    !filled(windowStart) ||
-    typeof score !== 'number' ||
-    !Number.isFinite(score)
+    !text(raw['id']) ||
+    !text(raw['metricId']) ||
+    !text(raw['serviceId']) ||
+    !text(raw['severity']) ||
+    !SEVERITIES.includes(raw['severity']) ||
+    !text(raw['windowStart']) ||
+    Number.isNaN(Date.parse(raw['windowStart'])) ||
+    typeof raw['score'] !== 'number' ||
+    !Number.isFinite(raw['score'])
   ) {
     return null;
   }
-  const startMs = Date.parse(windowStart);
-  const endMs = filled(windowEnd) ? Date.parse(windowEnd) : startMs;
-  if (Number.isNaN(startMs) || Number.isNaN(endMs)) {
-    return null;
-  }
-  return {
-    id,
-    metricId,
-    serviceId,
-    severity: severity as Severity,
-    detector: filled(detector) ? detector : 'UNKNOWN',
-    score,
-    windowStart,
-    windowEnd: filled(windowEnd) ? windowEnd : windowStart,
-    startMs,
-    endMs,
-    createdAt: raw.createdAt ?? windowStart,
-    acknowledgedAt: filled(raw.acknowledgedAt) ? raw.acknowledgedAt : null,
-    acknowledgedBy: filled(raw.acknowledgedBy) ? raw.acknowledgedBy : null,
-    details: raw.details ?? {},
-  };
+  const start = raw['windowStart'];
+  const optionalText = (value: unknown): string | null => (text(value) ? value : null);
+  return toAnomaly({
+    ...(raw as unknown as AnomalyRaw),
+    windowEnd: text(raw['windowEnd']) ? raw['windowEnd'] : start,
+    createdAt: text(raw['createdAt']) ? raw['createdAt'] : start,
+    detector: (text(raw['detector']) ? raw['detector'] : 'ZSCORE') as AnomalyRaw['detector'],
+    acknowledgedAt: optionalText(raw['acknowledgedAt']),
+    acknowledgedBy: optionalText(raw['acknowledgedBy']),
+    details:
+      typeof raw['details'] === 'object' && raw['details'] !== null
+        ? (raw['details'] as AnomalyRaw['details'])
+        : {},
+  });
 }
 
 export function isAcknowledged(anomaly: Pick<Anomaly, 'acknowledgedAt'>): boolean {
@@ -189,19 +168,19 @@ export function parseDurationSeconds(value: string | undefined): number | null {
 
 export function toMetricSeries(raw: MetricPointsRaw): MetricSeries {
   const points: MetricPoint[] = [];
-  for (const point of raw.points ?? []) {
-    const t = Date.parse(point.ts ?? '');
+  for (const point of raw.points) {
+    const t = Date.parse(point.ts);
     if (Number.isNaN(t)) {
       continue;
     }
+    // The bucket value is nullable in the contract: null is a gap, not a number.
     const value =
       typeof point.value === 'number' && Number.isFinite(point.value) ? point.value : null;
-    points.push({ t, value, count: point.count ?? 0 });
+    points.push({ t, value, count: point.count });
   }
   points.sort((a, b) => a.t - b.t);
-  const aggregation = raw.aggregation;
   return {
-    aggregation: aggregation && AGGREGATIONS.includes(aggregation) ? aggregation : null,
+    aggregation: raw.aggregation,
     stepSeconds: parseDurationSeconds(raw.step),
     points,
   };

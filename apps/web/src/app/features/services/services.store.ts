@@ -4,7 +4,7 @@ import { rxMethod } from '@ngrx/signals/rxjs-interop';
 import { catchError, from, map, mergeMap, of, pipe, switchMap, tap } from 'rxjs';
 
 import { ApiClient } from '../../api/api-client';
-import { MetricDefinition, Service, toMetricDefinition, toService } from '../../api/models';
+import { MetricDefinition, Service } from '../../api/models';
 import { ApiProblem, isApiError } from '../../api/problem';
 import { quietContext } from '../../core/http/api-request';
 import { SessionLifecycle } from '../../core/session/session-lifecycle';
@@ -21,11 +21,13 @@ interface ServicesState {
   services: Loadable<Service>;
   /** Metric definitions by service id. */
   metrics: Readonly<Record<string, Loadable<MetricDefinition>>>;
+  /** One service by id (GET /services/{id}); `items` holds zero or one entry. */
+  details: Readonly<Record<string, Loadable<Service>>>;
 }
 
 const IDLE = { status: 'idle', items: [], problem: null } as const satisfies Loadable<never>;
 
-const INITIAL: ServicesState = { services: IDLE, metrics: {} };
+const INITIAL: ServicesState = { services: IDLE, metrics: {}, details: {} };
 
 const UNKNOWN_PROBLEM: ApiProblem = {
   status: 0,
@@ -36,10 +38,6 @@ const UNKNOWN_PROBLEM: ApiProblem = {
 
 function problemOf(error: unknown): ApiProblem {
   return isApiError(error) ? error.problem : UNKNOWN_PROBLEM;
-}
-
-function present<T>(items: readonly (T | null)[]): T[] {
-  return items.filter((item): item is T => item !== null);
 }
 
 /**
@@ -72,7 +70,7 @@ export const ServicesStore = signalStore(
             api.get('/api/v1/services', { context: quietContext() }).pipe(
               map((rows): Loadable<Service> => ({
                 status: 'loaded',
-                items: present(rows.map(toService)),
+                items: rows,
                 problem: null,
               })),
               catchError((error: unknown) =>
@@ -88,6 +86,45 @@ export const ServicesStore = signalStore(
                 }
               }),
             ),
+          ),
+        ),
+      ),
+
+      loadService: rxMethod<string>(
+        pipe(
+          map((serviceId) => ({ serviceId, startedIn: epoch })),
+          tap(({ serviceId }) =>
+            patchState(store, (state) => ({
+              details: {
+                ...state.details,
+                [serviceId]: {
+                  ...(state.details[serviceId] ?? IDLE),
+                  status: 'loading' as const,
+                  problem: null,
+                },
+              },
+            })),
+          ),
+          switchMap(({ serviceId, startedIn }) =>
+            api
+              .get('/api/v1/services/{serviceId}', { path: { serviceId }, context: quietContext() })
+              .pipe(
+                map((row): Loadable<Service> => ({
+                  status: 'loaded',
+                  items: [row],
+                  problem: null,
+                })),
+                catchError((error: unknown) =>
+                  of<Loadable<Service>>({ status: 'error', items: [], problem: problemOf(error) }),
+                ),
+                tap((detail) => {
+                  if (startedIn === epoch) {
+                    patchState(store, (state) => ({
+                      details: { ...state.details, [serviceId]: detail },
+                    }));
+                  }
+                }),
+              ),
           ),
         ),
       ),
@@ -116,7 +153,7 @@ export const ServicesStore = signalStore(
               .pipe(
                 map((rows): Loadable<MetricDefinition> => ({
                   status: 'loaded',
-                  items: present(rows.map(toMetricDefinition)),
+                  items: rows,
                   problem: null,
                 })),
                 catchError((error: unknown) =>
@@ -163,7 +200,7 @@ export const ServicesStore = signalStore(
                   .pipe(
                     map((rows): Loadable<MetricDefinition> => ({
                       status: 'loaded',
-                      items: present(rows.map(toMetricDefinition)),
+                      items: rows,
                       problem: null,
                     })),
                     catchError((error: unknown) =>

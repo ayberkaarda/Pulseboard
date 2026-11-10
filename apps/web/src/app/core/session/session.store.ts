@@ -1,7 +1,7 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { inject } from '@angular/core';
 import { patchState, signalStore, withComputed, withMethods, withState } from '@ngrx/signals';
-import { firstValueFrom } from 'rxjs';
+import { EMPTY as NEVER_EMITS, catchError, firstValueFrom, timeout } from 'rxjs';
 
 import { ApiClient } from '../../api/api-client';
 import type { components } from '../../api/generated/schema';
@@ -54,6 +54,9 @@ const EMPTY: SessionState = {
   refreshTokenExpiresAt: null,
   user: null,
 };
+
+/** Longest the sign-out request may take; the local sign-out never waits for it. */
+const LOGOUT_TIMEOUT_MS = 3000;
 
 /** A token that expires this soon is refreshed before it is handed to a long lived connection. */
 const FRESHNESS_MARGIN_MS = 30_000;
@@ -195,9 +198,23 @@ export const SessionStore = signalStore(
         return store.accessToken();
       },
 
-      /** Ends the session on this device: tokens, storage and every registered store are cleared. */
+      /**
+       * Ends the session on this device: tokens, storage and every registered store are cleared at
+       * once. The server is told as well so the refresh token family is revoked, but that call is
+       * best effort: it never delays or blocks signing out, and its failure is ignored.
+       */
       logout(): void {
+        const refreshToken = store.refreshToken();
         clearSession();
+        if (refreshToken !== null) {
+          api
+            .post('/api/v1/auth/logout', { body: { refreshToken }, context: quietContext() })
+            .pipe(
+              timeout(LOGOUT_TIMEOUT_MS),
+              catchError(() => NEVER_EMITS),
+            )
+            .subscribe();
+        }
       },
     };
   }),

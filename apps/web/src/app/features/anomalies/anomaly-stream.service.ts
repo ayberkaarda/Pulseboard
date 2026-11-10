@@ -3,7 +3,7 @@ import { DestroyRef, Injectable, InjectionToken, inject, signal } from '@angular
 import { Subject, firstValueFrom } from 'rxjs';
 
 import { ApiClient } from '../../api/api-client';
-import { AnomalyRaw, toAnomaly } from '../../api/models';
+import { parseStreamAnomaly } from '../../api/models';
 import { ApiProblem, isApiError } from '../../api/problem';
 import { quietContext } from '../../core/http/api-request';
 import { SessionLifecycle } from '../../core/session/session-lifecycle';
@@ -293,7 +293,7 @@ export class AnomalyStreamService {
     if (typeof parsed !== 'object' || parsed === null) {
       return;
     }
-    const anomaly = toAnomaly(parsed as AnomalyRaw);
+    const anomaly = parseStreamAnomaly(parsed);
     if (anomaly === null) {
       return;
     }

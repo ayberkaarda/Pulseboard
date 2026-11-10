@@ -152,10 +152,7 @@ export const MetricsStore = signalStore(
               map((body): Partial<MetricsState> => ({
                 anomalies: {
                   status: 'loaded',
-                  items: (body.items ?? [])
-                    .map(toAnomaly)
-                    .filter((item): item is Anomaly => item !== null)
-                    .sort(compareAnomalies),
+                  items: body.items.map(toAnomaly).sort(compareAnomalies),
                   totalItems: body.totalItems ?? 0,
                   problem: null,
                 },
