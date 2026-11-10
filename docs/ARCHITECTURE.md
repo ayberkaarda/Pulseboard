@@ -1,5 +1,7 @@
 ﻿# Pulseboard Architecture
 
+> **Status.** Phases P0 to P4 are built. Alert rules, alert evaluation and notification dispatch (section 4.3 and the matching parts of the diagrams and the domain model) are the planned phase P5 and do not exist in the code yet. The tenant dashboard, service drill-down and live anomaly feed exist; the alert rule editor does not.
+
 ## 1. System Overview Mind Map
 
 ```mermaid
