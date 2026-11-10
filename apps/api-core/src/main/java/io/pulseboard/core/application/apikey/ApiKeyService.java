@@ -65,13 +65,19 @@ public class ApiKeyService {
      * <p>The cache marker is written before the transaction commits, so no request can be authenticated from a
      * cached result once the revocation is visible. When the cache cannot be reached the revocation is rolled back
      * (503), and when the transaction rolls back for any other reason this revocation's marker (identified by its
-     * token) is removed again; a marker written meanwhile by a concurrent revocation that committed is kept.
+     * token) is removed again; a marker written meanwhile by a concurrent revocation that committed is kept. A call
+     * that revokes nothing because the key was already revoked writes no marker at all.
      */
     @Transactional
     public void revoke(TenantId tenantId, UUID apiKeyId) {
         ApiKey apiKey = apiKeyRepository.findByIdAndTenantId(apiKeyId, tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("API key", apiKeyId));
-        apiKeyRepository.revoke(apiKeyId, tenantId, clock.instant());
+        int revoked = apiKeyRepository.revoke(apiKeyId, tenantId, clock.instant());
+        if (revoked == 0) {
+            // Already revoked by a committed transaction (the conditional update waits for any open one): its
+            // marker stays, and this call must not replace it, or its rollback would remove that protection.
+            return;
+        }
         String keyHash = apiKey.getKeyHash();
         String markerToken = apiKeyCache.markRevoked(keyHash);
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
