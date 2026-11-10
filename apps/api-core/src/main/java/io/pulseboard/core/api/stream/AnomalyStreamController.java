@@ -40,7 +40,7 @@ public class AnomalyStreamController {
                     + "header; use a fetch based client). The stream ends when the access token expires or after "
                     + "at most 30 minutes (configurable); reconnect with a fresh token. Events published while "
                     + "disconnected are not replayed: read GET /api/v1/anomalies after reconnecting. Limited per "
-                    + "tenant and per instance (defaults 5 and 500).",
+                    + "tenant and per instance (defaults 10 and 500).",
             responses = {
                 @ApiResponse(responseCode = "200", description = "Event stream",
                         content = @Content(mediaType = MediaType.TEXT_EVENT_STREAM_VALUE,

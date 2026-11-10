@@ -142,7 +142,7 @@ pulseboard:
     max-body-bytes: ${INTERNAL_MAX_BODY_BYTES:524288}
   stream:
     # Live anomaly streams (server-sent events): concurrent connections per tenant and per instance.
-    max-per-tenant: ${ANOMALY_STREAM_MAX_PER_TENANT:5}
+    max-per-tenant: ${ANOMALY_STREAM_MAX_PER_TENANT:10}
     max-total: ${ANOMALY_STREAM_MAX_TOTAL:500}
     # Keep-alive comment while a stream is idle; a dead client is noticed by the failing write.
     heartbeat-interval: ${ANOMALY_STREAM_HEARTBEAT:30s}
