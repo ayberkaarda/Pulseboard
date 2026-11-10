@@ -304,18 +304,34 @@ class AnomalyStreamIntegrationTest extends AnomalyIntegrationTest {
             assertThat(notifySigned(notificationBody(stored)).statusCode()).isEqualTo(202);
             stream.awaitEvent(e -> stored.id().toString().equals(e.id()), Duration.ofSeconds(4));
 
-            // ... and it is still open at a checkpoint well before expiry, after a heartbeat that followed the event.
+            // ... and it is still open at a checkpoint in the last quarter of the token lifetime, taken right after a
+            // heartbeat that arrived there: a stream that closes early (for instance at half the lifetime) fails here.
+            Instant lastQuarter = expiry.minus(Duration.between(issuedAt, expiry).dividedBy(4));
+            Instant safetyLimit = expiry.minusMillis(400);
+            await().atMost(Duration.between(Instant.now(), lastQuarter).plusSeconds(1))
+                    .pollInterval(Duration.ofMillis(25)).until(() -> !Instant.now().isBefore(lastQuarter));
             int pings = stream.comments().size();
-            await().atMost(Duration.ofSeconds(3)).until(() -> stream.comments().size() > pings);
-            assertThat(Instant.now()).as("checkpoint is before expiry").isBefore(expiry.minusMillis(500));
-            assertThat(stream.hasEnded()).as("stream still open before expiry").isFalse();
+            await().atMost(Duration.ofSeconds(2)).pollInterval(Duration.ofMillis(10))
+                    .until(() -> stream.comments().size() > pings);
+            Instant checkpoint = Instant.now();
+            assertThat(checkpoint).as("checkpoint is in the last quarter of the token lifetime")
+                    .isAfterOrEqualTo(lastQuarter).isBefore(safetyLimit);
+            assertThat(stream.hasEnded()).as("stream still open near expiry").isFalse();
             assertThat(subscribers(channelOf(tenant.tenantId()))).isEqualTo(1);
 
-            // After expiry the stream ends and its subscription is released within a bounded interval.
-            stream.awaitEnd(Duration.between(Instant.now(), expiry).plusSeconds(4));
-            awaitSubscribers(tenant, 0);
-            await().atMost(PATIENCE).until(() -> admission.openStreams() <= openBefore);
+            // After expiry the stream ends and everything it held is released, all within ONE deadline.
+            Instant deadline = expiry.plusSeconds(4);
+            stream.awaitEnd(Duration.between(Instant.now(), deadline));
+            await().atMost(remaining(deadline)).until(() -> subscribers(channelOf(tenant.tenantId())) == 0);
+            await().atMost(remaining(deadline)).until(() -> admission.openStreams() <= openBefore);
+            assertThat(Instant.now()).as("released within the single deadline")
+                    .isBeforeOrEqualTo(deadline.plusSeconds(1));
         }
+    }
+
+    private static Duration remaining(Instant deadline) {
+        Duration left = Duration.between(Instant.now(), deadline);
+        return left.isNegative() || left.isZero() ? Duration.ofMillis(50) : left;
     }
 
     @Test
