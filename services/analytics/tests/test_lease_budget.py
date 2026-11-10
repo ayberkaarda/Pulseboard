@@ -4,6 +4,7 @@ import socket
 import threading
 import time
 import uuid
+from typing import Any
 
 import pytest
 from redis import Redis
@@ -18,6 +19,7 @@ from pulseboard_analytics.jobs.score_all import (
     CURSOR_KEY,
     LOCK_KEY,
     NOTIFY_BATCH,
+    SLOW_KEY,
     RunSummary,
     score_all_metrics,
 )
@@ -48,7 +50,7 @@ def _run(
     redis: Redis,
     ticker: Ticker,
     notifier: object | None = None,
-    **extra: float,
+    **extra: Any,
 ) -> RunSummary:
     return score_all_metrics(
         reader=MetricReader(reader_engine),
@@ -270,8 +272,9 @@ def test_training_that_outlasts_the_lease_writes_nothing_and_stops_the_run(
     with owner.connect() as conn:
         assert conn.execute(text("SELECT count(*) FROM detector_state")).scalar_one() == 0
         assert conn.execute(text("SELECT count(*) FROM anomaly")).scalar_one() == 0
-    # the next run resumes with the metric that was cut off
-    assert redis_client.get(CURSOR_KEY) is not None
+    # A lost the lease: it writes neither the cursor nor the slow-metric entry
+    assert redis_client.get(CURSOR_KEY) is None
+    assert redis_client.hgetall(SLOW_KEY) == {}
     assert redis_client.get(LOCK_KEY) is not None  # B's lease was not released by A
 
 
@@ -522,6 +525,8 @@ def test_the_lease_and_lock_settings_have_safe_defaults() -> None:
 
     assert settings.metric_lock_timeout_seconds == 10
     assert settings.lease_margin_seconds == 5
+    assert settings.db_pool_timeout_seconds == 5
+    assert settings.db_connect_timeout_seconds == 5
     assert settings.verify_db_roles is True
 
 

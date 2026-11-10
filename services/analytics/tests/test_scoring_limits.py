@@ -4,6 +4,7 @@ import json
 import threading
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import numpy as np
 import pytest
@@ -104,7 +105,7 @@ def _run_all(
     redis: Redis,
     notifier: object | None = None,
     ticker: Ticker | None = None,
-    **extra: float,
+    **extra: Any,
 ) -> RunSummary:
     return score_all_metrics(
         reader=MetricReader(reader_engine),

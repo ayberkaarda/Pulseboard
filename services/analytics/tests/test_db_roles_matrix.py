@@ -262,3 +262,81 @@ def test_the_restricted_roles_pass_again_after_every_alteration(
     reader_engine: Engine, writer_engine: Engine
 ) -> None:
     verify_database_roles(reader_engine, writer_engine)
+
+
+@pytest.mark.parametrize("attribute", ["CREATEROLE", "CREATEDB", "REPLICATION", "BYPASSRLS"])
+def test_set_membership_of_an_object_less_dangerous_role_is_refused(
+    owner: Engine, reader_engine: Engine, writer_engine: Engine, attribute: str
+) -> None:
+    with _altered(
+        owner,
+        [
+            f"CREATE ROLE ghost_admin NOLOGIN {attribute}",
+            "GRANT ghost_admin TO analytics_writer WITH INHERIT FALSE, SET TRUE",
+        ],
+        ["DROP ROLE ghost_admin"],
+    ):
+        message = _refused(reader_engine, writer_engine)
+
+    assert f"{WRITER} can reach role 'ghost_admin' (SET ROLE)" in message
+
+
+def test_create_on_schema_public_is_refused(
+    owner: Engine, reader_engine: Engine, writer_engine: Engine
+) -> None:
+    with _altered(
+        owner,
+        ["GRANT CREATE ON SCHEMA public TO analytics_reader, analytics_writer"],
+        ["REVOKE CREATE ON SCHEMA public FROM analytics_reader, analytics_writer"],
+    ):
+        message = _refused(reader_engine, writer_engine)
+
+    assert f"{READER} can CREATE in schema public" in message
+    assert f"{WRITER} can CREATE in schema public" in message
+
+
+def test_missing_usage_on_schema_public_is_refused(
+    owner: Engine, reader_engine: Engine, writer_engine: Engine
+) -> None:
+    with _altered(
+        owner,
+        ["REVOKE USAGE ON SCHEMA public FROM PUBLIC"],
+        ["GRANT USAGE ON SCHEMA public TO PUBLIC"],
+    ):
+        message = _refused(reader_engine, writer_engine)
+
+    assert f"{READER} cannot USE schema public" in message
+    assert f"{WRITER} cannot USE schema public" in message
+
+
+@pytest.mark.parametrize("privilege", ["USAGE", "CREATE"])
+def test_privileges_on_another_schema_are_refused(
+    owner: Engine, reader_engine: Engine, writer_engine: Engine, privilege: str
+) -> None:
+    with _altered(
+        owner,
+        ["CREATE SCHEMA extra", f"GRANT {privilege} ON SCHEMA extra TO analytics_writer"],
+        ["DROP SCHEMA extra CASCADE"],
+    ):
+        message = _refused(reader_engine, writer_engine)
+
+    assert f"{WRITER} can {'USE' if privilege == 'USAGE' else 'CREATE in'} schema extra" in message
+
+
+def test_a_single_column_grant_does_not_satisfy_a_required_table_privilege(
+    owner: Engine, reader_engine: Engine, writer_engine: Engine
+) -> None:
+    with _altered(
+        owner,
+        [
+            "REVOKE SELECT ON anomaly FROM analytics_writer",
+            "GRANT SELECT (id) ON anomaly TO analytics_writer",
+        ],
+        [
+            "REVOKE SELECT (id) ON anomaly FROM analytics_writer",
+            "GRANT SELECT ON anomaly TO analytics_writer",
+        ],
+    ):
+        message = _refused(reader_engine, writer_engine)
+
+    assert f"{WRITER} cannot SELECT anomaly (only on some columns)" in message
