@@ -1,7 +1,7 @@
 COMPOSE_BASE := docker compose --env-file .env -f infra/docker-compose.yml
 COMPOSE_DEV  := $(COMPOSE_BASE) -f infra/docker-compose.dev.yml
 
-.PHONY: up down test test-api test-analytics test-web lint openapi-gen check-env e2e e2e-down
+.PHONY: up down test test-api test-analytics test-web lint openapi-gen check-env check-compose e2e e2e-down
 
 check-env:
 	@test -f .env || (echo "Missing .env: copy .env.example to .env and set every value." && exit 1)
@@ -39,9 +39,17 @@ openapi-gen:
 	cd apps/api-core && ./gradlew generateOpenApiDocs --no-daemon
 	cd services/analytics && uv run python -m pulseboard_analytics.openapi_export ../../contracts/analytics.openapi.yaml
 
+# Checks that docker compose passes the tunable settings (defaults and overrides) to the services.
+check-compose:
+	$(PYTHON) scripts/check_compose_env.py
+
 # End-to-end check of ingest -> analytics -> anomalies (REST + SSE) in a throwaway compose project
 # (pulseboard-e2e, own secrets). It does not touch the regular stack or .env. Needs Docker and Python 3.
+ifeq ($(OS),Windows_NT)
+PYTHON ?= py
+else
 PYTHON ?= python3
+endif
 e2e:
 	$(PYTHON) scripts/e2e/run.py
 
