@@ -1,13 +1,19 @@
 """Periodic scoring of every active metric, guarded by a Redis lock.
 
 The lock is a lease that is not renewed, and it bounds work; it does not make it exclusive.
-Each metric gets a time budget that ends with the lease (database statement and lock timeouts,
-a check before the state write and the insert, a total time budget for notification), and no
-metric starts with less than the safety margin left. Two things can still overlap with the next
-holder of the lock: an uninterruptible training run and a statement that is already executing,
-for at most the margin plus the statement timeout. Single-writer behaviour is therefore
-guaranteed by idempotent stores (decision D1: the anomaly unique key with ``ON CONFLICT DO
-NOTHING``, and compare-and-set model state), not by the lease alone.
+Each metric gets a time budget that ends with the lease: waiting for a pooled connection and
+opening a new one are capped by what is left (to a whole second for the libpq connect timeout),
+every statement carries statement and lock timeouts derived from it (re-derived before each
+statement of a multi-statement insert), a check follows the checkout, the training and before
+each write, and notification has a hard total deadline enforced by a watchdog. No metric starts
+with less than the safety margin left. What can still overlap with the next holder of the lock:
+an uninterruptible training run (CPU work, but its result is discarded when the budget is spent,
+so it writes nothing), a database statement that is already executing (stopped by its statement
+timeout at the lease end, plus the server's own timer granularity) and the clock skew between
+this process and Redis. The margin is not a bound on any of these; it only keeps a new metric
+from starting without time. Single-writer behaviour is therefore guaranteed by idempotent
+stores (decision D1: the anomaly unique key with ``ON CONFLICT DO NOTHING``, and compare-and-set
+model state keyed on version and ``trained_at``), not by the lease alone.
 """
 
 import time
@@ -32,6 +38,11 @@ JOB_ID = "score_all_metrics"
 NOTIFY_BATCH = 500
 CURSOR_KEY = "analytics:score_all:cursor"
 CURSOR_TTL_SECONDS = 24 * 3600
+SLOW_KEY = "analytics:score_all:slow"
+SLOW_TTL_SECONDS = 24 * 3600
+SLOW_BASE_BACKOFF_SECONDS = 120.0
+SLOW_MAX_BACKOFF_SECONDS = 3600.0
+SLOW_MAX_ENTRIES = 500
 
 _log = structlog.get_logger(__name__)
 
@@ -66,6 +77,7 @@ def score_all_metrics(
     deadline_seconds: float = 50.0,
     lease_margin_seconds: float = 5.0,
     monotonic: Callable[[], float] = time.monotonic,
+    wall: Callable[[], float] = time.time,
 ) -> RunSummary:
     """Score all metrics with points in the last 24 hours.
 
@@ -78,6 +90,14 @@ def score_all_metrics(
     run stopped (the first unscored metric is kept in Redis, so the rotation survives restarts).
     A run that is cut short therefore never starves the tail: with ``k`` metrics scored per run,
     all ``n`` are scored within ``ceil(n / k)`` runs. A run that finishes clears the cursor.
+
+    Slow metrics: a metric that exhausts its time budget never stays first in line. The cursor
+    moves past it, and it is recorded with an exponential backoff (``SLOW_BASE_BACKOFF_SECONDS``
+    doubling per failure up to ``SLOW_MAX_BACKOFF_SECONDS``, a Redis hash of at most
+    ``SLOW_MAX_ENTRIES`` entries with a TTL). While its backoff runs it is skipped; once due it
+    is tried again, but only after every other metric of the run, so it cannot starve them. A
+    successful scoring removes the entry. Every Redis write of the cursor and of this table is
+    an atomic compare-owner-then-write script, so a run that lost its lease writes nothing.
 
     Lease: the Redis lease is not renewed. Before each metric the run checks that it still owns
     the lease (the check is repeated against the local clock after the Redis round trip), that
@@ -103,25 +123,38 @@ def score_all_metrics(
         now = scorer.clock()
         metrics = reader.active_metrics(now - WINDOW, now, Budget(lease_end, monotonic))
         scorer.retain({metric.id for metric in metrics})
-        metrics = _rotate(metrics, _read_cursor(redis))
+        slow = _read_slow(redis)
+        now_wall = wall()
+        normal = [m for m in metrics if str(m.id) not in slow]
+        due = sorted(
+            (m for m in metrics if str(m.id) in slow and slow[str(m.id)][1] <= now_wall),
+            key=lambda m: slow[str(m.id)][1],
+        )
+        waiting = len(metrics) - len(normal) - len(due)
+        if waiting:
+            _log.info("score_all_slow_metrics_waiting", count=waiting)
+        ordered = [*_rotate(normal, _read_cursor(redis)), *due]
+        _forget_stale(lock, slow, {m.id for m in metrics})
         pending: list[StoredAnomaly] = []
         failed = inserted = notified = unscored = 0
         resume_from: UUID | None = None
-        for position, metric in enumerate(metrics):
+        for position, metric in enumerate(ordered):
             reason = _stop_reason(
                 lock, started, deadline_seconds, lease_margin_seconds * 1000.0, monotonic
             )
             if reason is not None:
-                unscored = len(metrics) - position
-                resume_from = metric.id
+                unscored = len(ordered) - position
+                resume_from = metric.id if position < len(normal) else None
                 _log.warning("score_all_stopped", reason=reason, unscored_metrics=unscored)
                 break
             try:
                 outcome = scorer.score_metric(metric, Budget(lease_end, monotonic))
             except BudgetExhausted:
                 failed += 1
-                unscored = len(metrics) - position
-                resume_from = metric.id
+                unscored = len(ordered) - position
+                following = ordered[position + 1] if position + 1 < len(normal) else None
+                resume_from = None if following is None else following.id
+                _mark_slow(lock, slow, metric.id, now_wall)
                 _log.warning("metric_budget_exhausted", metric_id=str(metric.id))
                 break
             except MetricBusyError:
@@ -133,6 +166,8 @@ def score_all_metrics(
                 failed += 1
                 _log.exception("metric_scoring_failed", metric_id=str(metric.id))
                 continue
+            if str(metric.id) in slow:
+                lock.guarded("HDEL", SLOW_KEY, str(metric.id))
             if outcome.failed:
                 failed += 1
                 _log.error(
@@ -147,7 +182,7 @@ def score_all_metrics(
                 pending = pending[NOTIFY_BATCH:]
         if pending:
             notified += _deliver(notifier, pending, Budget(lease_end, monotonic))
-        _write_cursor(redis, resume_from)
+        _write_cursor(lock, resume_from)
         summary = RunSummary(
             metrics=len(metrics),
             failed_metrics=failed,
@@ -178,14 +213,60 @@ def _read_cursor(redis: Redis) -> UUID | None:
         return None
 
 
-def _write_cursor(redis: Redis, resume_from: UUID | None) -> None:
+def _write_cursor(lock: RedisLock, resume_from: UUID | None) -> None:
+    """Save or clear the cursor, atomically with the check that this run still owns the lock."""
     try:
         if resume_from is None:
-            redis.delete(CURSOR_KEY)
+            lock.guarded("DEL", CURSOR_KEY)
         else:
-            redis.set(CURSOR_KEY, str(resume_from), ex=CURSOR_TTL_SECONDS)
+            lock.guarded("SET", CURSOR_KEY, str(resume_from), "EX", CURSOR_TTL_SECONDS)
     except Exception:
         _log.warning("score_cursor_not_saved", exc_info=True)
+
+
+def _read_slow(redis: Redis) -> dict[str, tuple[int, float]]:
+    """The slow-metric table: metric id to ``(failures, retry not before (epoch seconds))``."""
+    table: dict[str, tuple[int, float]] = {}
+    try:
+        raw = redis.hgetall(SLOW_KEY)
+        for field, value in raw.items():
+            try:
+                failures, until = str(value).split(":")
+                table[str(field)] = (int(failures), float(until))
+            except ValueError:
+                continue
+    except Exception:
+        _log.warning("score_slow_unreadable", exc_info=True)
+    return table
+
+
+def _forget_stale(lock: RedisLock, slow: dict[str, tuple[int, float]], active: set[UUID]) -> None:
+    keep = {str(metric_id) for metric_id in active}
+    stale = [field for field in slow if field not in keep]
+    try:
+        for field in stale:
+            lock.guarded("HDEL", SLOW_KEY, field)
+            del slow[field]
+    except Exception:
+        _log.warning("score_slow_not_saved", exc_info=True)
+
+
+def _mark_slow(
+    lock: RedisLock, slow: dict[str, tuple[int, float]], metric_id: UUID, now: float
+) -> None:
+    """Record that ``metric_id`` exhausted its budget; it is retried after a growing backoff."""
+    field = str(metric_id)
+    failures = slow.get(field, (0, 0.0))[0] + 1
+    delay = min(SLOW_MAX_BACKOFF_SECONDS, SLOW_BASE_BACKOFF_SECONDS * 2 ** (failures - 1))
+    _log.warning("metric_marked_slow", metric_id=field, failures=failures, retry_in_seconds=delay)
+    if field not in slow and len(slow) >= SLOW_MAX_ENTRIES:
+        _log.warning("score_slow_table_full", entries=len(slow))
+        return
+    try:
+        lock.guarded("HSET", SLOW_KEY, field, f"{failures}:{now + delay}")
+        lock.guarded("EXPIRE", SLOW_KEY, SLOW_TTL_SECONDS)
+    except Exception:
+        _log.warning("score_slow_not_saved", exc_info=True)
 
 
 def _stop_reason(

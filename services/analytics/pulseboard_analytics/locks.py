@@ -15,6 +15,14 @@ end
 return 0
 """
 
+_GUARDED_SCRIPT = """
+if redis.call('GET', KEYS[1]) == ARGV[1] then
+    redis.call(ARGV[2], KEYS[2], unpack(ARGV, 3))
+    return 1
+end
+return 0
+"""
+
 
 class RedisLock:
     """Single-holder lock: ``SET key token NX PX ttl``, released only by its owner.
@@ -69,6 +77,18 @@ class RedisLock:
             return False
         owned = self._client.get(self._key) == self._token
         return owned and self.remaining_ms() > 0.0
+
+    def guarded(self, command: str, key: str, *args: str | int) -> bool:
+        """Run one Redis write command on ``key`` only while this instance still owns the lock.
+
+        The owner comparison and the write are one atomic script, so a run whose lease was lost
+        (and taken over by another holder) can never write or delete anything. Returns whether
+        the command ran.
+        """
+        if self._token is None:
+            return False
+        ran = self._client.eval(_GUARDED_SCRIPT, 2, self._key, key, self._token, command, *args)
+        return bool(ran)
 
     def release(self) -> bool:
         """Delete the key only if it still holds this instance's token."""
