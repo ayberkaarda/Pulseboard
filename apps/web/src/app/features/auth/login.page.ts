@@ -53,7 +53,7 @@ export class LoginPage {
     this.formError.set(null);
     if (this.form.invalid) {
       this.form.markAllAsTouched();
-      focusFirstInvalid(this.host.nativeElement);
+      focusFirstInvalid(this.host.nativeElement, this.form);
       return;
     }
     this.submitting.set(true);

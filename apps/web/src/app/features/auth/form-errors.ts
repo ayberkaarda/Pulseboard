@@ -23,6 +23,12 @@ export function applyProblem(form: FormGroup, problem: ApiProblem): string | nul
   return describeProblem(problem);
 }
 
-export function focusFirstInvalid(root: HTMLElement): void {
-  root.querySelector<HTMLElement>('input.ng-invalid')?.focus();
+/** Moves focus to the first field, in form order, that has an error. */
+export function focusFirstInvalid(root: HTMLElement, form: FormGroup): void {
+  for (const [name, control] of Object.entries(form.controls)) {
+    if (control.invalid) {
+      root.querySelector<HTMLElement>(`[formcontrolname="${name}"]`)?.focus();
+      return;
+    }
+  }
 }

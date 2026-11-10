@@ -31,12 +31,7 @@
             <li>
               <a class="metric" [routerLink]="['/app/metrics', metric.id]">
                 <span class="name">{{ metric.name }}</span>
-                <span class="meta">
-                  {{ aggregationLabels[metric.aggregation] }}
-                  @if (metric.unit) {
-                    , {{ metric.unit }}
-                  }
-                </span>
+                <span class="meta">{{ describe(metric) }}</span>
               </a>
             </li>
           }

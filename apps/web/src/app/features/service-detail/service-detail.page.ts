@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, effect, inject, input } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
+import { MetricDefinition } from '../../api/models';
 import { LoadErrorComponent } from '../../shared/load-state/load-error.component';
 import { SkeletonRowsComponent } from '../../shared/load-state/skeleton-rows.component';
 import { PageHeadComponent } from '../../shared/page-head/page-head.component';
@@ -36,7 +37,6 @@ export class ServiceDetailPage {
   readonly id = input.required<string>();
 
   protected readonly store = inject(ServicesStore);
-  protected readonly aggregationLabels = AGGREGATION_LABELS;
 
   protected readonly service = computed(() =>
     this.store.services().items.find((item) => item.id === this.id()),
@@ -61,6 +61,11 @@ export class ServiceDetailPage {
     if (this.store.services().status === 'idle') {
       this.store.loadServices();
     }
+  }
+
+  protected describe(metric: MetricDefinition): string {
+    const aggregation = AGGREGATION_LABELS[metric.aggregation];
+    return metric.unit ? `${aggregation}, ${metric.unit}` : aggregation;
   }
 
   protected reload(): void {

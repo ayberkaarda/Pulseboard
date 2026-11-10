@@ -7,7 +7,7 @@ import { ApiError, ApiProblem, decodeProblem, describeProblem } from '../../api/
 import { DEFAULT_LANDING_URL, safeReturnUrl } from '../navigation/return-url';
 import { Notifier } from '../notify/notifier.service';
 import { SessionStore } from '../session/session.store';
-import { IS_REPLAY, SKIP_ERROR_TOAST, isApiRequest, isAuthEndpoint } from './api-request';
+import { SKIP_ERROR_TOAST, isApiRequest, isAuthEndpoint } from './api-request';
 
 /** Adds the bearer token to same-origin /api/ requests, except the public auth endpoints. */
 export const authInterceptor: HttpInterceptorFn = (request, next) => {
@@ -26,7 +26,7 @@ export const authInterceptor: HttpInterceptorFn = (request, next) => {
  * A replay that fails again is not retried, and nothing other than a 401 is ever replayed.
  */
 export const refreshInterceptor: HttpInterceptorFn = (request, next) => {
-  if (!isApiRequest(request.url) || isAuthEndpoint(request.url) || request.context.get(IS_REPLAY)) {
+  if (!isApiRequest(request.url) || isAuthEndpoint(request.url)) {
     return next(request);
   }
   const session = inject(SessionStore);
@@ -39,7 +39,9 @@ export const refreshInterceptor: HttpInterceptorFn = (request, next) => {
       if (!(error instanceof HttpErrorResponse) || error.status !== 401 || sentWith === null) {
         return throwError(() => error);
       }
-      const replay = () => next(request.clone({ context: request.context.set(IS_REPLAY, true) }));
+      // The replay goes straight to the next handler, never back through this interceptor, so a
+      // request is replayed at most once.
+      const replay = () => next(request);
       // Another request already rotated the tokens while this one was in flight.
       if (session.accessToken() !== null && session.accessToken() !== sentWith) {
         return replay();

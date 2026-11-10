@@ -76,7 +76,7 @@ export class RegisterPage {
     this.formError.set(null);
     if (this.form.invalid) {
       this.form.markAllAsTouched();
-      focusFirstInvalid(this.host.nativeElement);
+      focusFirstInvalid(this.host.nativeElement, this.form);
       return;
     }
     this.submitting.set(true);
@@ -95,10 +95,10 @@ export class RegisterPage {
       if (isApiError(error) && error.problem.status === 409) {
         this.form.controls.tenantSlug.setErrors({ server: 'This workspace address is taken.' });
         this.form.controls.tenantSlug.markAsTouched();
-        focusFirstInvalid(this.host.nativeElement);
+        focusFirstInvalid(this.host.nativeElement, this.form);
       } else if (isApiError(error)) {
         this.formError.set(applyProblem(this.form, error.problem));
-        focusFirstInvalid(this.host.nativeElement);
+        focusFirstInvalid(this.host.nativeElement, this.form);
       } else {
         this.formError.set('Something went wrong. Try again.');
       }

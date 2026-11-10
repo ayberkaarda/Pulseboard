@@ -1,3 +1,4 @@
+import { HttpErrorResponse } from '@angular/common/http';
 import { inject } from '@angular/core';
 import { patchState, signalStore, withComputed, withMethods, withState } from '@ngrx/signals';
 import { firstValueFrom } from 'rxjs';
@@ -35,6 +36,16 @@ interface SessionState {
  * - unavailable: the refresh could not be completed (network, 5xx, 429); the session is kept.
  */
 export type RefreshOutcome = 'refreshed' | 'ended' | 'unavailable';
+
+/** The server looked at the refresh token and refused it (as opposed to not answering). */
+function isDefiniteRejection(error: unknown): boolean {
+  const status = isApiError(error)
+    ? error.problem.status
+    : error instanceof HttpErrorResponse
+      ? error.status
+      : 0;
+  return status === 401 || status === 400;
+}
 
 const EMPTY: SessionState = {
   accessToken: null,
@@ -121,7 +132,7 @@ export const SessionStore = signalStore(
           return 'ended';
         }
         // Only a definite rejection ends the session. A flaky network must not sign anyone out.
-        if (isApiError(error) && (error.problem.status === 401 || error.problem.status === 400)) {
+        if (isDefiniteRejection(error)) {
           clearSession();
           return 'ended';
         }

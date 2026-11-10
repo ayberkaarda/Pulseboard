@@ -8,9 +8,6 @@ export function quietContext(): HttpContext {
   return new HttpContext().set(SKIP_ERROR_TOAST, true);
 }
 
-/** Set on the single replay of a request after a token refresh, so it can never loop. */
-export const IS_REPLAY = new HttpContextToken<boolean>(() => false);
-
 const FALLBACK_ORIGIN = 'http://pulseboard.invalid';
 
 function resolve(url: string): URL | null {

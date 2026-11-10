@@ -6,7 +6,13 @@ const angular = require('angular-eslint');
 const prettier = require('eslint-config-prettier');
 
 module.exports = defineConfig([
-  globalIgnores(['src/app/api/generated/**', 'dist/**', 'coverage/**', '.angular/**', 'node_modules/**']),
+  globalIgnores([
+    'src/app/api/generated/**',
+    'dist/**',
+    'coverage/**',
+    '.angular/**',
+    'node_modules/**',
+  ]),
   {
     files: ['**/*.ts'],
     extends: [
