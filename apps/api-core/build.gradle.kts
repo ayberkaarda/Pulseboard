@@ -1,0 +1,105 @@
+plugins {
+    java
+    checkstyle
+    id("org.springframework.boot") version "4.1.2"
+    id("io.spring.dependency-management") version "1.1.7"
+}
+
+group = "io.pulseboard"
+version = "0.1.0"
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+checkstyle {
+    toolVersion = "14.4.0"
+    configFile = file("config/checkstyle/checkstyle.xml")
+    isIgnoreFailures = false
+    maxWarnings = 0
+}
+
+val mapstructVersion = "1.6.3"
+val springdocVersion = "3.2.0"
+val archunitVersion = "1.5.1"
+
+dependencies {
+    // Web (Spring MVC) and validation
+    implementation("org.springframework.boot:spring-boot-starter-webmvc")
+    implementation("org.springframework.boot:spring-boot-starter-validation")
+
+    // Security with JWT (Nimbus JOSE via spring-security-oauth2-jose)
+    implementation("org.springframework.boot:spring-boot-starter-security")
+    implementation("org.springframework.boot:spring-boot-starter-security-oauth2-resource-server")
+
+    // Persistence: JPA (Hibernate), Flyway, PostgreSQL
+    implementation("org.springframework.boot:spring-boot-starter-data-jpa")
+    implementation("org.springframework.boot:spring-boot-starter-flyway")
+    implementation("org.flywaydb:flyway-database-postgresql")
+    runtimeOnly("org.postgresql:postgresql")
+
+    // Redis
+    implementation("org.springframework.boot:spring-boot-starter-data-redis")
+
+    // API documentation
+    implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:$springdocVersion")
+
+    // Observability
+    implementation("org.springframework.boot:spring-boot-starter-actuator")
+    runtimeOnly("io.micrometer:micrometer-registry-prometheus")
+
+    // DTO mapping
+    implementation("org.mapstruct:mapstruct:$mapstructVersion")
+    annotationProcessor("org.mapstruct:mapstruct-processor:$mapstructVersion")
+
+    // Tests
+    testImplementation("org.springframework.boot:spring-boot-starter-test")
+    testImplementation("org.springframework.boot:spring-boot-starter-webmvc-test")
+    testImplementation("org.springframework.boot:spring-boot-starter-security-test")
+    testImplementation("org.springframework.boot:spring-boot-resttestclient")
+    testImplementation("org.springframework.boot:spring-boot-testcontainers")
+    testImplementation("org.testcontainers:testcontainers-junit-jupiter")
+    testImplementation("org.testcontainers:testcontainers-postgresql")
+    testImplementation("com.tngtech.archunit:archunit-junit5:$archunitVersion")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+}
+
+tasks.withType<JavaCompile>().configureEach {
+    options.encoding = "UTF-8"
+    options.compilerArgs.addAll(
+        listOf(
+            "-parameters",
+            "-Amapstruct.defaultComponentModel=spring",
+            "-Amapstruct.unmappedTargetPolicy=ERROR",
+        ),
+    )
+}
+
+tasks.withType<Test>().configureEach {
+    useJUnitPlatform()
+    systemProperty("spring.profiles.active", "test")
+    testLogging {
+        events("passed", "skipped", "failed")
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+    }
+}
+
+// No default profile is baked into the application, so an unconfigured deployment never runs with the
+// developer-oriented `local` settings. `bootRun` selects `local` unless SPRING_PROFILES_ACTIVE says otherwise.
+tasks.bootRun {
+    systemProperty("spring.profiles.active", System.getenv("SPRING_PROFILES_ACTIVE") ?: "local")
+}
+
+tasks.bootJar {
+    archiveFileName = "api-core.jar"
+}
+
+tasks.jar {
+    enabled = false
+}
