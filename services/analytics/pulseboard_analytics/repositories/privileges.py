@@ -19,10 +19,19 @@ and so do sequences and functions of the schema. Privileges are resolved by rela
 ``public`` schema, never by an unqualified name, so a same-named table elsewhere cannot hide a
 problem.
 
+Required privileges are checked at table level (``has_table_privilege``): a grant on some
+columns only does not satisfy them. Column-level grants count only when looking for forbidden
+privileges.
+
 Besides the matrix a role must not be a superuser, bypass row level security, create roles or
 databases, start replication, own anything in the schema, or be able to reach such a role:
 membership (with or without inheritance, and ``SET ROLE`` on PostgreSQL 16 and later) in a
-superuser, in a ``pg_*`` predefined role or in an owner of schema objects is refused.
+superuser, in a role that has ``CREATEROLE``, ``CREATEDB``, ``REPLICATION`` or ``BYPASSRLS``
+(even one that owns nothing), in a ``pg_*`` predefined role or in an owner of schema objects is
+refused.
+
+Schemas: both roles need ``USAGE`` on ``public`` and must not have ``CREATE`` there; they must
+have no privilege at all on any other non-system schema.
 
 Verification is on by default (``VERIFY_DB_ROLES=true``). Setting it to ``false`` skips the check
 and exists for tests that run without the real role layout; do not use it in a deployment.
@@ -67,6 +76,7 @@ _RELATIONS = text(
     SELECT c.relname AS name, p.priv AS privilege,
            (c.relispartition
             OR EXISTS (SELECT 1 FROM pg_inherits i WHERE i.inhrelid = c.oid)) AS is_child,
+           has_table_privilege(current_user, c.oid, p.priv) AS table_granted,
            (has_table_privilege(current_user, c.oid, p.priv)
             OR (p.priv IN ('SELECT', 'INSERT', 'UPDATE', 'REFERENCES')
                 AND has_any_column_privilege(current_user, c.oid, p.priv))) AS granted
@@ -74,6 +84,16 @@ _RELATIONS = text(
     JOIN pg_namespace n ON n.oid = c.relnamespace
     CROSS JOIN unnest(CAST(:privileges AS text[])) AS p(priv)
     WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
+    """
+)
+
+_SCHEMAS = text(
+    """
+    SELECT n.nspname AS name,
+           has_schema_privilege(current_user, n.oid, 'USAGE') AS can_use,
+           has_schema_privilege(current_user, n.oid, 'CREATE') AS can_create
+    FROM pg_namespace n
+    WHERE n.nspname NOT LIKE 'pg\\_%' AND n.nspname <> 'information_schema'
     """
 )
 
@@ -110,6 +130,10 @@ _REACHABLE = """
     WHERE t.rolname <> current_user
       AND (
           t.rolsuper
+          OR t.rolcreaterole
+          OR t.rolcreatedb
+          OR t.rolreplication
+          OR t.rolbypassrls
           OR t.rolname LIKE 'pg\\_%'
           OR t.oid IN (
               SELECT c.relowner FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -169,11 +193,25 @@ def _privilege_problems(conn: Connection, matrix: dict[str, frozenset[str]]) -> 
                 problems.append(f"has a direct {row.privilege} grant on child table {row.name}")
             continue
         allowed = matrix.get(row.name, frozenset())
-        if row.granted and row.privilege not in allowed:
+        if row.privilege in allowed:
+            # A required privilege must hold on the whole table; a column grant is not enough.
+            if not row.table_granted:
+                partial = " (only on some columns)" if row.granted else ""
+                problems.append(f"cannot {row.privilege} {row.name}{partial}")
+        elif row.granted:
             problems.append(f"can {row.privilege} {row.name}")
-        elif not row.granted and row.privilege in allowed:
-            problems.append(f"cannot {row.privilege} {row.name}")
     problems.extend(f"cannot see table {name} (missing)" for name in sorted(matrix.keys() - seen))
+    for schema in conn.execute(_SCHEMAS):
+        if schema.name == "public":
+            if schema.can_create:
+                problems.append("can CREATE in schema public")
+            if not schema.can_use:
+                problems.append("cannot USE schema public")
+        else:
+            if schema.can_use:
+                problems.append(f"can USE schema {schema.name}")
+            if schema.can_create:
+                problems.append(f"can CREATE in schema {schema.name}")
     problems.extend(
         f"can {row.privilege} sequence {row.name}"
         for row in conn.execute(_SEQUENCES)
