@@ -27,7 +27,10 @@ public class OpenApiConfiguration {
     /** Security scheme of service to service calls: the HMAC-SHA256 of the request body. */
     public static final String INTERNAL_HMAC_AUTH = "internalHmac";
 
-    static final String CONTRACT_VERSION = "0.3.0";
+    /** Security scheme of the live stream for clients that cannot set headers: a one-time ticket in the query. */
+    public static final String STREAM_TICKET_AUTH = "streamTicket";
+
+    static final String CONTRACT_VERSION = "0.4.0";
 
     @Bean
     OpenAPI pulseboardOpenApi() {
@@ -49,6 +52,13 @@ public class OpenApiConfiguration {
                                 .in(SecurityScheme.In.HEADER)
                                 .name("X-Api-Key")
                                 .description("Tenant API key from /api/v1/api-keys."))
+                        .addSecuritySchemes(STREAM_TICKET_AUTH, new SecurityScheme()
+                                .type(SecurityScheme.Type.APIKEY)
+                                .in(SecurityScheme.In.QUERY)
+                                .name("ticket")
+                                .description("GET /api/v1/stream/anomalies only. One-time ticket from "
+                                        + "POST /api/v1/stream/ticket, an alternative to the bearer token; "
+                                        + "sending both is refused."))
                         .addSecuritySchemes(INTERNAL_HMAC_AUTH, new SecurityScheme()
                                 .type(SecurityScheme.Type.APIKEY)
                                 .in(SecurityScheme.In.HEADER)
