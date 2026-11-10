@@ -24,7 +24,7 @@ import org.springframework.test.web.servlet.client.RestTestClient;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureRestTestClient
 @ActiveProfiles("test")
-@Import(TestcontainersConfiguration.class)
+@Import({TestcontainersConfiguration.class, JdkRestTestClientConfiguration.class})
 public abstract class IntegrationTest {
 
     protected static final String PASSWORD = "correct-horse-battery-staple";
