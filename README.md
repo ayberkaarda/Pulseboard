@@ -39,3 +39,20 @@ The API is not published to the host in the default stack, because api-core trus
 Port 8081 on the host is the web entry point; api-core's own management port 8081 (`/actuator/*`) exists only inside the Docker network.
 `TRUSTED_PROXIES` (api-core env, regex of trusted proxy addresses) defaults to the private Docker network ranges.
 `make up DEV=1` binds api-core to `127.0.0.1:${API_CORE_HOST_PORT:-8080}` for local development only.
+
+## OpenAPI contracts
+
+`make openapi-gen` regenerates `contracts/api-core.openapi.yaml` and `contracts/analytics.openapi.yaml` from the code.
+CI fails when a checked-in contract differs from what the code produces, so commit the regenerated files with the change that caused them.
+
+## Configuration
+
+Set in `.env` (see `.env.example`); every secret below is required and must be non-empty.
+
+| Variable | Purpose |
+|---|---|
+| `POSTGRES_PASSWORD`, `API_CORE_DB_PASSWORD`, `ANALYTICS_READER_DB_PASSWORD`, `ANALYTICS_WRITER_DB_PASSWORD` | Database superuser and per-role passwords |
+| `REDIS_PASSWORD` | Redis `requirepass`, used by api-core and analytics (URL-safe characters only, e.g. `openssl rand -hex 24`) |
+| `INTERNAL_SHARED_SECRET` | HMAC key for api-core / analytics internal calls |
+| `JWT_SECRET` | JWT signing key, at least 32 bytes |
+| `WEB_PORT` | Host port of the web entry point |
