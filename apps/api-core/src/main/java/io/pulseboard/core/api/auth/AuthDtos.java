@@ -1,5 +1,8 @@
 package io.pulseboard.core.api.auth;
 
+import static io.swagger.v3.oas.annotations.media.Schema.RequiredMode.REQUIRED;
+
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
@@ -36,15 +39,22 @@ public final class AuthDtos {
     public record RefreshRequest(@NotBlank @Size(max = 256) String refreshToken) {
     }
 
+    /** Ends a session: revokes the whole refresh-token family of the presented token. */
+    public record LogoutRequest(@NotBlank @Size(max = 256) String refreshToken) {
+    }
+
     /** Token pair returned by register, login and refresh. */
     public record TokenResponse(
-            String tokenType,
-            String accessToken,
-            Instant accessTokenExpiresAt,
-            String refreshToken,
+            @Schema(requiredMode = REQUIRED) String tokenType,
+            @Schema(requiredMode = REQUIRED) String accessToken,
+            @Schema(requiredMode = REQUIRED) Instant accessTokenExpiresAt,
+            @Schema(requiredMode = REQUIRED) String refreshToken,
+            @Schema(requiredMode = REQUIRED,
+                    description = "End of the refresh token's validity; never later than the end of the session "
+                            + "(absolute refresh lifetime).")
             Instant refreshTokenExpiresAt,
-            UUID userId,
-            UUID tenantId,
-            String role) {
+            @Schema(requiredMode = REQUIRED) UUID userId,
+            @Schema(requiredMode = REQUIRED) UUID tenantId,
+            @Schema(requiredMode = REQUIRED) String role) {
     }
 }

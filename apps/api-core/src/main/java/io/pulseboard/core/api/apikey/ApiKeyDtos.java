@@ -1,5 +1,8 @@
 package io.pulseboard.core.api.apikey;
 
+import static io.swagger.v3.oas.annotations.media.Schema.RequiredMode.REQUIRED;
+
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import java.time.Instant;
@@ -16,6 +19,11 @@ public final class ApiKeyDtos {
     }
 
     /** A newly issued key. {@code key} is returned only in this response and cannot be retrieved again. */
-    public record ApiKeyCreatedResponse(UUID id, String name, String prefix, String key, Instant createdAt) {
+    public record ApiKeyCreatedResponse(
+            @Schema(requiredMode = REQUIRED) UUID id,
+            @Schema(requiredMode = REQUIRED) String name,
+            @Schema(requiredMode = REQUIRED) String prefix,
+            @Schema(requiredMode = REQUIRED) String key,
+            @Schema(requiredMode = REQUIRED) Instant createdAt) {
     }
 }

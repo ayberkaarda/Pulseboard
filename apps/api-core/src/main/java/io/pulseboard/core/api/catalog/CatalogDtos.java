@@ -1,7 +1,10 @@
 package io.pulseboard.core.api.catalog;
 
+import static io.swagger.v3.oas.annotations.media.Schema.RequiredMode.REQUIRED;
+
 import io.pulseboard.core.domain.catalog.Aggregation;
 import io.pulseboard.core.domain.catalog.Environment;
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
@@ -20,7 +23,11 @@ public final class CatalogDtos {
             @NotNull Environment environment) {
     }
 
-    public record ServiceResponse(UUID id, String name, Environment environment, Instant createdAt) {
+    public record ServiceResponse(
+            @Schema(requiredMode = REQUIRED) UUID id,
+            @Schema(requiredMode = REQUIRED) String name,
+            @Schema(requiredMode = REQUIRED) Environment environment,
+            @Schema(requiredMode = REQUIRED) Instant createdAt) {
     }
 
     public record CreateMetricRequest(
@@ -33,11 +40,11 @@ public final class CatalogDtos {
     }
 
     public record MetricDefinitionResponse(
-            UUID id,
-            UUID serviceId,
-            String name,
-            String unit,
-            Aggregation aggregation,
-            Instant createdAt) {
+            @Schema(requiredMode = REQUIRED) UUID id,
+            @Schema(requiredMode = REQUIRED) UUID serviceId,
+            @Schema(requiredMode = REQUIRED) String name,
+            @Schema(requiredMode = REQUIRED) String unit,
+            @Schema(requiredMode = REQUIRED) Aggregation aggregation,
+            @Schema(requiredMode = REQUIRED) Instant createdAt) {
     }
 }

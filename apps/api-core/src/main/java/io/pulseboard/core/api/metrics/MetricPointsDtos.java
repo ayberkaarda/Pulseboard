@@ -1,5 +1,7 @@
 package io.pulseboard.core.api.metrics;
 
+import static io.swagger.v3.oas.annotations.media.Schema.RequiredMode.REQUIRED;
+
 import io.pulseboard.core.domain.catalog.Aggregation;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.Instant;
@@ -14,26 +16,32 @@ public final class MetricPointsDtos {
 
     @Schema(name = "MetricPoints", description = "A metric downsampled into epoch-aligned buckets.")
     public record MetricPointsResponse(
-            UUID metricId,
-            @Schema(description = "How the samples of each bucket are combined (from the metric definition).")
+            @Schema(requiredMode = REQUIRED) UUID metricId,
+            @Schema(requiredMode = REQUIRED,
+                    description = "How the samples of each bucket are combined (from the metric definition).")
             Aggregation aggregation,
-            @Schema(description = "Inclusive start of the queried range, rounded up to whole microseconds.")
+            @Schema(requiredMode = REQUIRED,
+                    description = "Inclusive start of the queried range, rounded up to whole microseconds.")
             Instant from,
-            @Schema(description = "Exclusive end of the queried range, rounded up to whole microseconds.")
+            @Schema(requiredMode = REQUIRED,
+                    description = "Exclusive end of the queried range, rounded up to whole microseconds.")
             Instant to,
-            @Schema(description = "Bucket width used (ISO 8601 duration).", example = "PT5M") String step,
-            @Schema(description = "Non-empty buckets in ascending order; at most 2000.")
+            @Schema(requiredMode = REQUIRED,
+                    description = "Bucket width used (ISO 8601 duration).", example = "PT5M") String step,
+            @Schema(requiredMode = REQUIRED, description = "Non-empty buckets in ascending order; at most 2000.")
             List<MetricPointBucket> points) {
     }
 
     @Schema(name = "MetricPointBucket")
     public record MetricPointBucket(
-            @Schema(description = "Start of the bucket (epoch-aligned; the first bucket may start before from).")
+            @Schema(requiredMode = REQUIRED,
+                    description = "Start of the bucket (epoch-aligned; the first bucket may start before from).")
             Instant ts,
-            @Schema(description = "Aggregated value of the bucket; null when the aggregate is not a finite number "
+            @Schema(requiredMode = REQUIRED,
+                    description = "Aggregated value of the bucket; null when the aggregate is not a finite number "
                     + "(not reachable with values accepted by ingestion).", types = {"number", "null"},
                     format = "double")
             Double value,
-            @Schema(description = "Number of samples in the bucket.") long count) {
+            @Schema(requiredMode = REQUIRED, description = "Number of samples in the bucket.") long count) {
     }
 }

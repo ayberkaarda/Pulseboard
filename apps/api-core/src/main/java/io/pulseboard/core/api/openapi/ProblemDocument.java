@@ -1,5 +1,7 @@
 package io.pulseboard.core.api.openapi;
 
+import static io.swagger.v3.oas.annotations.media.Schema.RequiredMode.REQUIRED;
+
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.List;
 
@@ -10,11 +12,12 @@ import java.util.List;
  */
 @Schema(name = "Problem", description = "RFC 9457 problem details (application/problem+json).")
 public record ProblemDocument(
-        @Schema(description = "Problem type URI, urn:pulseboard:problem:<kind>.",
+        @Schema(requiredMode = REQUIRED,
+                description = "Problem type URI, urn:pulseboard:problem:<kind>.",
                 example = "urn:pulseboard:problem:validation")
         String type,
-        String title,
-        int status,
+        @Schema(requiredMode = REQUIRED) String title,
+        @Schema(requiredMode = REQUIRED) int status,
         String detail,
         @Schema(description = "Request path.") String instance,
         @Schema(description = "Present on validation problems: one entry per violation.",

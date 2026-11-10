@@ -1,5 +1,7 @@
 package io.pulseboard.core.api.stream;
 
+import static io.swagger.v3.oas.annotations.media.Schema.RequiredMode.REQUIRED;
+
 import io.pulseboard.core.api.openapi.OpenApiConfiguration;
 import io.pulseboard.core.api.openapi.ProblemDocument;
 import io.pulseboard.core.application.streamticket.IssuedStreamTicket;
@@ -36,10 +38,11 @@ public class StreamTicketController {
 
     /** A ticket for the live stream. */
     public record StreamTicketResponse(
-            @Schema(description = "Opaque one-time value for the `ticket` query parameter of the stream endpoint. "
+            @Schema(requiredMode = REQUIRED,
+                    description = "Opaque one-time value for the `ticket` query parameter of the stream endpoint. "
                     + "256 random bits, URL-safe base64 without padding. Shown once; never log or store it.")
             String ticket,
-            @Schema(description = "Seconds the ticket can still be used", example = "30")
+            @Schema(requiredMode = REQUIRED, description = "Seconds the ticket can still be used", example = "30")
             long expiresInSeconds) {
 
         /** Frameworks log response objects at TRACE; the ticket must not be part of that. */
