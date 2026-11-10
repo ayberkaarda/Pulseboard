@@ -17,6 +17,21 @@ public interface RateLimiter {
     Decision tryAcquire(String namespace, String subject, RateLimitPolicy policy);
 
     /**
+     * Reports whether a token is available without taking it (the bucket is refilled, nothing is consumed).
+     *
+     * @throws RateLimiterUnavailableException when the backing store cannot be reached (callers fail closed)
+     */
+    Decision check(String namespace, String subject, RateLimitPolicy policy);
+
+    /** Throws {@link RateLimitExceededException} when {@link #check} finds the bucket empty; consumes nothing. */
+    default void checkOrThrow(String namespace, String subject, RateLimitPolicy policy) {
+        Decision decision = check(namespace, subject, policy);
+        if (!decision.allowed()) {
+            throw new RateLimitExceededException(decision.retryAfter());
+        }
+    }
+
+    /**
      * Takes one token or throws {@link RateLimitExceededException} carrying the time until a token is available.
      */
     default void acquireOrThrow(String namespace, String subject, RateLimitPolicy policy) {

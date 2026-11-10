@@ -1,16 +1,22 @@
 package io.pulseboard.core.api.error;
 
 import io.pulseboard.core.application.auth.AuthenticationFailedException;
+import io.pulseboard.core.application.common.DependencyUnavailableException;
+import io.pulseboard.core.application.common.InvalidRequestException;
 import io.pulseboard.core.application.common.ResourceConflictException;
 import io.pulseboard.core.application.common.ResourceNotFoundException;
+import io.pulseboard.core.application.ingest.PayloadTooLargeException;
 import io.pulseboard.core.application.ratelimit.RateLimitExceededException;
 import io.pulseboard.core.application.ratelimit.RateLimiterUnavailableException;
+import io.pulseboard.core.domain.metrics.AggregateOverflowException;
 import java.net.URI;
 import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.ConcurrencyFailureException;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.QueryTimeoutException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -83,6 +89,55 @@ public class ProblemDetailsExceptionHandler extends ResponseEntityExceptionHandl
                 .header(HttpHeaders.RETRY_AFTER, "5")
                 .body(problem(HttpStatus.SERVICE_UNAVAILABLE, "unavailable", "Service Unavailable",
                         "The service is temporarily unavailable"));
+    }
+
+    @ExceptionHandler(DependencyUnavailableException.class)
+    ResponseEntity<ProblemDetail> handleDependencyUnavailable(DependencyUnavailableException ex) {
+        LOG.error("Required dependency unavailable; failing closed", ex);
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .header(HttpHeaders.RETRY_AFTER, "5")
+                .body(problem(HttpStatus.SERVICE_UNAVAILABLE, "unavailable", "Service Unavailable",
+                        "The service is temporarily unavailable"));
+    }
+
+    /** Lock conflicts (deadlock victim, lock timeout) are transient: the client should simply retry. */
+    @ExceptionHandler(ConcurrencyFailureException.class)
+    ResponseEntity<ProblemDetail> handleConcurrencyFailure(ConcurrencyFailureException ex) {
+        LOG.warn("Concurrent write conflict; answering with a retryable 503", ex);
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .header(HttpHeaders.RETRY_AFTER, "1")
+                .body(problem(HttpStatus.SERVICE_UNAVAILABLE, "concurrency-conflict", "Service Unavailable",
+                        "The request conflicted with a concurrent write and was rolled back; retry it"));
+    }
+
+    @ExceptionHandler(QueryTimeoutException.class)
+    ResponseEntity<ProblemDetail> handleQueryTimeout(QueryTimeoutException ex) {
+        LOG.warn("Query cancelled by the statement timeout", ex);
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .header(HttpHeaders.RETRY_AFTER, "5")
+                .body(problem(HttpStatus.SERVICE_UNAVAILABLE, "query-timeout", "Service Unavailable",
+                        "The query took too long; narrow the range or use a larger step"));
+    }
+
+    @ExceptionHandler(AggregateOverflowException.class)
+    ProblemDetail handleAggregateOverflow(AggregateOverflowException ex) {
+        LOG.warn("Aggregate overflow", ex);
+        return problem(HttpStatus.UNPROCESSABLE_CONTENT, "aggregate-out-of-range", "Unprocessable Content",
+                "An aggregate of the stored samples exceeds the representable range");
+    }
+
+    @ExceptionHandler(InvalidRequestException.class)
+    ProblemDetail handleInvalidRequest(InvalidRequestException ex) {
+        ProblemDetail body = problem(HttpStatus.BAD_REQUEST, "validation", "Validation failed", ex.getMessage());
+        body.setProperty("errors", ex.getViolations().stream()
+                .map(violation -> Map.of("field", violation.location(), "message", violation.message()))
+                .toList());
+        return body;
+    }
+
+    @ExceptionHandler(PayloadTooLargeException.class)
+    ProblemDetail handlePayloadTooLarge(PayloadTooLargeException ex) {
+        return problem(HttpStatus.CONTENT_TOO_LARGE, "payload-too-large", "Content Too Large", ex.getMessage());
     }
 
     @ExceptionHandler(AccessDeniedException.class)

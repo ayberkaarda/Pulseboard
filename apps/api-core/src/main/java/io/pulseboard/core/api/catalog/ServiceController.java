@@ -4,8 +4,12 @@ import io.pulseboard.core.api.catalog.CatalogDtos.CreateMetricRequest;
 import io.pulseboard.core.api.catalog.CatalogDtos.CreateServiceRequest;
 import io.pulseboard.core.api.catalog.CatalogDtos.MetricDefinitionResponse;
 import io.pulseboard.core.api.catalog.CatalogDtos.ServiceResponse;
+import io.pulseboard.core.api.openapi.OpenApiConfiguration;
 import io.pulseboard.core.application.catalog.ServiceCatalogService;
 import io.pulseboard.core.application.tenancy.TenantContext;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import java.util.List;
 import java.util.UUID;
@@ -23,6 +27,9 @@ import org.springframework.web.bind.annotation.RestController;
  * 404, exactly like an id that does not exist.
  */
 @RestController
+@Tag(name = "Services")
+@SecurityRequirement(name = OpenApiConfiguration.BEARER_AUTH)
+@SecurityRequirement(name = OpenApiConfiguration.API_KEY_AUTH)
 @RequestMapping("/api/v1/services")
 public class ServiceController {
 
@@ -43,6 +50,7 @@ public class ServiceController {
     }
 
     @PostMapping
+    @ApiResponse(responseCode = "201", description = "Created", useReturnTypeSchema = true)
     public ResponseEntity<ServiceResponse> createService(@Valid @RequestBody CreateServiceRequest request) {
         ServiceResponse body = catalogMapper.toResponse(
                 catalogService.createService(tenantContext.requireTenantId(), request.name(), request.environment()));
@@ -56,6 +64,7 @@ public class ServiceController {
     }
 
     @PostMapping("/{serviceId}/metrics")
+    @ApiResponse(responseCode = "201", description = "Created", useReturnTypeSchema = true)
     public ResponseEntity<MetricDefinitionResponse> createMetric(@PathVariable("serviceId") UUID serviceId,
             @Valid @RequestBody CreateMetricRequest request) {
         MetricDefinitionResponse body = catalogMapper.toResponse(catalogService.createMetric(

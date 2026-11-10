@@ -1,6 +1,8 @@
 package io.pulseboard.core.infrastructure.security;
 
+import io.pulseboard.core.application.apikey.ApiKeyClientPolicy;
 import io.pulseboard.core.application.apikey.ApiKeyService;
+import io.pulseboard.core.application.ratelimit.RateLimiter;
 import io.pulseboard.core.application.tenancy.TenantContext;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
@@ -22,7 +24,8 @@ import org.springframework.web.servlet.HandlerExceptionResolver;
  *
  * <ul>
  *   <li>Users authenticate with a JWT bearer access token (roles OWNER, ADMIN, VIEWER).</li>
- *   <li>Machines authenticate with {@code X-Api-Key} (role API_KEY, read-only catalogue access in this phase).</li>
+ *   <li>Machines authenticate with {@code X-Api-Key} (role API_KEY): metric ingestion and read-only catalogue
+ *   access. Metric queries are for users (JWT) only.</li>
  *   <li>The tenant of every authenticated request is bound to {@link TenantContext} before authorization.</li>
  *   <li>Anonymous authentication endpoints are throttled per client address by an MVC interceptor bound to the
  *   resolved handler (see {@code api.ratelimit}), so URL encoding variants cannot bypass it.</li>
@@ -44,6 +47,7 @@ public class SecurityConfiguration {
         "/actuator/prometheus",
         "/v3/api-docs",
         "/v3/api-docs/**",
+        "/v3/api-docs.yaml",
         "/swagger-ui.html",
         "/swagger-ui/**",
         "/error"
@@ -57,7 +61,7 @@ public class SecurityConfiguration {
 
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http, JwtDecoder jwtDecoder, ApiKeyService apiKeyService,
-            TenantContext tenantContext,
+            TenantContext tenantContext, RateLimiter rateLimiter, ApiKeyClientPolicy apiKeyClientPolicy,
             @Qualifier("handlerExceptionResolver") HandlerExceptionResolver handlerExceptionResolver)
             throws Exception {
         ProblemDetailsSecurityHandler problemHandler = new ProblemDetailsSecurityHandler(handlerExceptionResolver);
@@ -76,6 +80,12 @@ public class SecurityConfiguration {
                         .hasAnyRole(OWNER, ADMIN, VIEWER, ApiKeyAuthenticationToken.API_KEY_ROLE)
                         .requestMatchers(HttpMethod.POST, "/api/v1/services", "/api/v1/services/**")
                         .hasAnyRole(OWNER, ADMIN)
+                        // Not bound to a method: HEAD (routed to GET handlers) and any other verb get the same
+                        // role check as the documented method.
+                        .requestMatchers("/api/v1/ingest")
+                        .hasRole(ApiKeyAuthenticationToken.API_KEY_ROLE)
+                        .requestMatchers("/api/v1/metrics", "/api/v1/metrics/**")
+                        .hasAnyRole(OWNER, ADMIN, VIEWER)
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(resourceServer -> resourceServer
                         .jwt(jwt -> jwt.decoder(jwtDecoder).jwtAuthenticationConverter(jwtAuthenticationConverter()))
@@ -86,7 +96,8 @@ public class SecurityConfiguration {
                         .accessDeniedHandler(problemHandler))
                 // Credentials are irrelevant on the anonymous auth endpoints, so no API-key lookup runs there.
                 .addFilterBefore(new ApiKeyAuthenticationFilter(apiKeyService, problemHandler,
-                        PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/api/v1/auth/**")),
+                        PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/api/v1/auth/**"),
+                        rateLimiter, apiKeyClientPolicy, handlerExceptionResolver),
                         BearerTokenAuthenticationFilter.class)
                 .addFilterAfter(new TenantFilter(tenantContext, problemHandler), BearerTokenAuthenticationFilter.class)
                 .build();
