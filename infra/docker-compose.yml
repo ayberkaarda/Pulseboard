@@ -60,6 +60,8 @@ services:
       STREAM_TICKET_TTL: ${STREAM_TICKET_TTL:-30s}
       STREAM_TICKET_ISSUE_CAPACITY: ${STREAM_TICKET_ISSUE_CAPACITY:-30}
       STREAM_TICKET_ISSUE_PERIOD: ${STREAM_TICKET_ISSUE_PERIOD:-1m}
+      # Absolute session lifetime from login; must be at least the 7 day refresh token TTL.
+      REFRESH_FAMILY_TTL: ${REFRESH_FAMILY_TTL:-30d}
       INTERNAL_MAX_BODY_BYTES: ${INTERNAL_MAX_BODY_BYTES:-524288}
     depends_on:
       postgres:

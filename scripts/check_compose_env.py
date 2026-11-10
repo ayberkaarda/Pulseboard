@@ -39,6 +39,7 @@ SETTINGS = [
     ("api-core", "STREAM_TICKET_TTL", "30s", "20s"),
     ("api-core", "STREAM_TICKET_ISSUE_CAPACITY", "30", "5"),
     ("api-core", "STREAM_TICKET_ISSUE_PERIOD", "1m", "2m"),
+    ("api-core", "REFRESH_FAMILY_TTL", "30d", "14d"),
 ]
 
 
