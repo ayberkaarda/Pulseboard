@@ -53,7 +53,7 @@ services:
       INTERNAL_SHARED_SECRET: ${INTERNAL_SHARED_SECRET:?INTERNAL_SHARED_SECRET must be non-empty}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be non-empty}
       # Optional live stream and internal endpoint limits (defaults shown).
-      ANOMALY_STREAM_MAX_PER_TENANT: ${ANOMALY_STREAM_MAX_PER_TENANT:-5}
+      ANOMALY_STREAM_MAX_PER_TENANT: ${ANOMALY_STREAM_MAX_PER_TENANT:-10}
       ANOMALY_STREAM_MAX_TOTAL: ${ANOMALY_STREAM_MAX_TOTAL:-500}
       ANOMALY_STREAM_HEARTBEAT: ${ANOMALY_STREAM_HEARTBEAT:-30s}
       ANOMALY_STREAM_MAX_LIFETIME: ${ANOMALY_STREAM_MAX_LIFETIME:-30m}
@@ -84,6 +84,9 @@ services:
       # The scheduler runs inside the process, so this service must stay a single replica.
       SCHEDULER_ENABLED: ${SCHEDULER_ENABLED:-true}
       SCORE_INTERVAL_SECONDS: ${SCORE_INTERVAL_SECONDS:-60}
+      SCORE_DEADLINE_SECONDS: ${SCORE_DEADLINE_SECONDS:-50}
+      FOREST_CACHE_MAX: ${FOREST_CACHE_MAX:-256}
+      VERIFY_DB_ROLES: ${VERIFY_DB_ROLES:-true}
     deploy:
       replicas: 1
     expose:
