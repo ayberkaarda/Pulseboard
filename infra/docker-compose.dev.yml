@@ -1,0 +1,60 @@
+# Development overrides. Usage:
+#   docker compose --env-file .env -f infra/docker-compose.yml -f infra/docker-compose.dev.yml up
+services:
+  postgres:
+    ports:
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432"
+
+  redis:
+    ports:
+      - "127.0.0.1:${REDIS_HOST_PORT:-6379}:6379"
+
+  api-core:
+    image: eclipse-temurin:25-jdk
+    build: !reset null
+    # Source is mounted; restart api-core manually after changing Java code.
+    command: ["./gradlew", "bootRun"]
+    working_dir: /workspace
+    environment:
+      SPRING_PROFILES_ACTIVE: docker,local
+    volumes:
+      - ../apps/api-core:/workspace
+      - gradle-cache:/root/.gradle
+    # The JDK image ships without curl; probe the actuator endpoint through bash.
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /actuator/health HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q '\"status\":\"UP\"' <&3"]
+      interval: 10s
+      timeout: 5s
+      retries: 60
+      start_period: 90s
+
+  analytics:
+    image: python:3.14.10-slim-trixie
+    build: !reset null
+    command: ["sh", "-c", "pip install --no-cache-dir -q uv==0.13.7 && exec uv run --locked uvicorn --factory pulseboard_analytics.main:create_app --host 0.0.0.0 --port 8000 --reload"]
+    working_dir: /workspace
+    environment:
+      UV_PYTHON_DOWNLOADS: never
+    volumes:
+      - ../services/analytics:/workspace
+      - analytics-venv:/workspace/.venv
+
+  web:
+    image: node:26
+    build: !reset null
+    working_dir: /workspace
+    environment:
+      API_PROXY_TARGET: ${API_PROXY_TARGET:-http://api-core:8080}
+    command: ["sh", "-c", "npm ci && npx ng serve --host 0.0.0.0 --port 4200 --poll 1000"]
+    ports:
+      - "${WEB_DEV_PORT:-4200}:4200"
+    volumes:
+      - ../apps/web:/workspace
+      - web-node-modules:/workspace/node_modules
+    healthcheck:
+      disable: true
+
+volumes:
+  gradle-cache:
+  analytics-venv:
+  web-node-modules:
