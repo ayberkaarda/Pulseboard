@@ -42,10 +42,10 @@ class SchemaAndPartitionIntegrationTest extends IntegrationTest {
     private int monthsAhead;
 
     @Test
-    void allFourMigrationsAreApplied() {
+    void allMigrationsAreApplied() {
         List<String> versions = jdbcTemplate.queryForList(
                 "SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank", String.class);
-        assertThat(versions).containsExactly("1", "2", "3", "4");
+        assertThat(versions).containsExactly("1", "2", "3", "4", "5");
     }
 
     @Test
