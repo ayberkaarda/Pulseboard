@@ -3,7 +3,7 @@ info:
   description: "Identity, tenancy, metric ingestion and queries, anomalies and their\
     \ live stream. Errors are RFC 9457 problem details (application/problem+json)."
   title: Pulseboard api-core
-  version: 0.5.0
+  version: 0.6.0
 servers:
 - description: Same origin
   url: /
@@ -447,6 +447,37 @@ paths:
       summary: Ingest a batch of metric points
       tags:
       - Ingestion
+  /api/v1/metrics/{metricId}:
+    get:
+      description: The same representation as the items of a service's metric list
+        (it carries the serviceId). 404 when the id is unknown or belongs to another
+        tenant (identical responses).
+      operationId: getMetric
+      parameters:
+      - in: path
+        name: metricId
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MetricDefinitionResponse"
+          description: OK
+        "404":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: No such metric for the caller's tenant
+      security:
+      - bearerAuth: []
+      summary: Get a metric definition
+      tags:
+      - Metrics
   /api/v1/metrics/{metricId}/points:
     get:
       description: "Buckets of `step` aligned to the Unix epoch, combined with the\
@@ -934,6 +965,9 @@ components:
         metricId:
           type: string
           format: uuid
+        metricName:
+          type: string
+          description: Name of the metric.
         score:
           type: number
           format: double
@@ -944,6 +978,9 @@ components:
           type: string
           format: uuid
           description: Service that owns the metric.
+        serviceName:
+          type: string
+          description: Name of the service that owns the metric.
         severity:
           type: string
           enum:
@@ -969,8 +1006,10 @@ components:
       - detector
       - id
       - metricId
+      - metricName
       - score
       - serviceId
+      - serviceName
       - severity
       - tenantId
       - windowEnd
@@ -1432,12 +1471,20 @@ components:
         id:
           type: string
           format: uuid
+        lastPointAt:
+          type:
+          - string
+          - "null"
+          format: date-time
+          description: Timestamp of the newest sample over all metrics of the service;
+            null while the service has no samples.
         name:
           type: string
       required:
       - createdAt
       - environment
       - id
+      - lastPointAt
       - name
     StreamTicketResponse:
       type: object
