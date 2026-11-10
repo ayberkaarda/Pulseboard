@@ -12,6 +12,7 @@ RUN npm run build
 FROM nginx:1.30.6-alpine AS runtime
 
 COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY nginx/ /etc/nginx/snippets/
 COPY --from=build /app/dist/web/browser /usr/share/nginx/html
 
 EXPOSE 80
