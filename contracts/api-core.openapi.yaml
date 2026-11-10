@@ -1,0 +1,747 @@
+openapi: 3.1.0
+info:
+  description: "Identity, tenancy, metric ingestion and metric queries. Errors are\
+    \ RFC 9457 problem details (application/problem+json)."
+  title: Pulseboard api-core
+  version: 0.2.1
+servers:
+- description: Same origin
+  url: /
+paths:
+  /api/v1/api-keys:
+    post:
+      operationId: issue
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateApiKeyRequest"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiKeyCreatedResponse"
+          description: Created
+      security:
+      - bearerAuth: []
+      tags:
+      - API keys
+  /api/v1/api-keys/{id}:
+    delete:
+      operationId: revoke
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        "204":
+          description: Revoked
+      security:
+      - bearerAuth: []
+      tags:
+      - API keys
+  /api/v1/auth/login:
+    post:
+      operationId: login
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenResponse"
+          description: OK
+      tags:
+      - Authentication
+  /api/v1/auth/refresh:
+    post:
+      operationId: refresh
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenResponse"
+          description: OK
+      tags:
+      - Authentication
+  /api/v1/auth/register:
+    post:
+      operationId: register
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenResponse"
+          description: Created
+      tags:
+      - Authentication
+  /api/v1/ingest:
+    post:
+      description: "Stores up to 1000 points. Points that cannot be stored (unknown\
+        \ metric, timestamp outside the storable range, value not finite or |value|\
+        \ > 1e100, duplicate of a later point with the same metricId and ts) are listed\
+        \ in `rejected`; the others are stored. An existing sample with the same metric\
+        \ and timestamp is overwritten. Rate limited per tenant (defaults: FREE 60,\
+        \ PRO 600 batches per minute) and, before the key is looked up, per client\
+        \ address (all API key requests, and failed API key authentications separately)."
+      operationId: ingest
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MetricBatch"
+        required: true
+      responses:
+        "202":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IngestResponse"
+          description: Batch processed
+        "400":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Not JSON or violates the batch schema
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: "Missing, invalid or revoked API key"
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Not authenticated with an API key
+        "409":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Storage changed while the batch was written (for example a
+            partition was removed); nothing was stored
+        "413":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Body larger than the configured limit
+        "415":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Content type is not application/json
+        "429":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Tenant or client rate limit exceeded
+          headers:
+            Retry-After:
+              description: Seconds until a retry can succeed
+              schema:
+                type: integer
+              style: simple
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Unexpected error
+        "503":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: "Rate limiter unavailable (fails closed) or the batch lost\
+            \ a lock conflict with a concurrent write (type concurrency-conflict;\
+            \ nothing was stored, retry)"
+          headers:
+            Retry-After:
+              description: Seconds until a retry can succeed
+              schema:
+                type: integer
+              style: simple
+      security:
+      - apiKey: []
+      summary: Ingest a batch of metric points
+      tags:
+      - Ingestion
+  /api/v1/metrics/{metricId}/points:
+    get:
+      description: "Buckets of `step` aligned to the Unix epoch, combined with the\
+        \ metric's aggregation (AVG, SUM, MAX or P95 as a continuous percentile).\
+        \ Covers `from <= ts < to`; buckets without samples are omitted. At most 2000\
+        \ buckets: without `step` the smallest step of 1s, 5s, 10s, 15s, 30s, 1m,\
+        \ 2m, 5m, 10m, 15m, 30m, 1h, 2h, 3h, 6h, 12h, 1d, 2d or 7d that fits is used;\
+        \ an explicit step that would yield more buckets is rejected with 400. Limits:\
+        \ the range covers at most 366 days, from/to lie between 1970-01-01T00:00:00Z\
+        \ and 9999-12-31T23:59:59Z, step is whole seconds between PT1S and P366D.\
+        \ from/to are rounded up to whole microseconds (the storage precision) and\
+        \ echoed normalised. Rate limited per tenant (default 120 queries per minute);\
+        \ each query runs under a statement timeout (default 5 s)."
+      operationId: points
+      parameters:
+      - in: path
+        name: metricId
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - description: "Inclusive start, RFC 3339 date-time (encode '+' as %2B)."
+        in: query
+        name: from
+        required: true
+        schema:
+          type: string
+          format: date-time
+      - description: "Exclusive end, RFC 3339 date-time (encode '+' as %2B)."
+        in: query
+        name: to
+        required: true
+        schema:
+          type: string
+          format: date-time
+      - description: "Bucket width as an ISO 8601 duration of whole seconds, at least\
+          \ PT1S."
+        in: query
+        name: step
+        required: false
+        schema:
+          type: string
+          example: PT5M
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MetricPoints"
+          description: Downsampled series
+        "400":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Invalid range or step
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Missing or invalid access token
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Not authenticated as a user
+        "404":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: No such metric for the caller's tenant
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: An aggregate of the stored samples exceeds the double range
+            (type aggregate-out-of-range; not reachable with values accepted by ingestion)
+        "429":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Tenant query rate limit exceeded
+          headers:
+            Retry-After:
+              description: Seconds until a retry can succeed
+              schema:
+                type: integer
+              style: simple
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Unexpected error
+        "503":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Query exceeded the statement timeout (type query-timeout) or
+            the rate limiter is unavailable
+          headers:
+            Retry-After:
+              description: Seconds until a retry can succeed
+              schema:
+                type: integer
+              style: simple
+      security:
+      - bearerAuth: []
+      summary: Read a metric downsampled on the server
+      tags:
+      - Metrics
+  /api/v1/services:
+    get:
+      operationId: listServices
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ServiceResponse"
+          description: OK
+      security:
+      - bearerAuth: []
+      - apiKey: []
+      tags:
+      - Services
+    post:
+      operationId: createService
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateServiceRequest"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServiceResponse"
+          description: Created
+      security:
+      - bearerAuth: []
+      - apiKey: []
+      tags:
+      - Services
+  /api/v1/services/{serviceId}/metrics:
+    get:
+      operationId: listMetrics
+      parameters:
+      - in: path
+        name: serviceId
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MetricDefinitionResponse"
+          description: OK
+      security:
+      - bearerAuth: []
+      - apiKey: []
+      tags:
+      - Services
+    post:
+      operationId: createMetric
+      parameters:
+      - in: path
+        name: serviceId
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateMetricRequest"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MetricDefinitionResponse"
+          description: Created
+      security:
+      - bearerAuth: []
+      - apiKey: []
+      tags:
+      - Services
+components:
+  schemas:
+    ApiKeyCreatedResponse:
+      type: object
+      properties:
+        createdAt:
+          type: string
+          format: date-time
+        id:
+          type: string
+          format: uuid
+        key:
+          type: string
+        name:
+          type: string
+        prefix:
+          type: string
+    CreateApiKeyRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          maxLength: 100
+          minLength: 0
+      required:
+      - name
+    CreateMetricRequest:
+      type: object
+      properties:
+        aggregation:
+          type: string
+          enum:
+          - AVG
+          - SUM
+          - MAX
+          - P95
+        name:
+          type: string
+          maxLength: 100
+          minLength: 0
+          pattern: "^[a-z][a-z0-9_.]*$"
+        unit:
+          type: string
+          maxLength: 32
+          minLength: 0
+      required:
+      - aggregation
+      - name
+      - unit
+    CreateServiceRequest:
+      type: object
+      properties:
+        environment:
+          type: string
+          enum:
+          - PROD
+          - STAGING
+          - DEV
+        name:
+          type: string
+          maxLength: 100
+          minLength: 0
+      required:
+      - environment
+      - name
+    IngestResponse:
+      type: object
+      description: Outcome of an ingestion batch.
+      properties:
+        accepted:
+          type: integer
+          format: int32
+          description: Number of points stored (rows written); accepted + rejected
+            = points sent.
+        rejected:
+          type: array
+          description: "Points that were not stored, in ascending index order."
+          items:
+            $ref: "#/components/schemas/RejectedPoint"
+    LoginRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          maxLength: 320
+          minLength: 0
+        password:
+          type: string
+          maxLength: 128
+          minLength: 0
+        tenantSlug:
+          type: string
+          maxLength: 63
+          minLength: 0
+      required:
+      - email
+      - password
+      - tenantSlug
+    MetricBatch:
+      type: object
+      additionalProperties: false
+      description: A batch of metric points (contracts/events/metric-batch.schema.json).
+      properties:
+        points:
+          type: array
+          items:
+            $ref: "#/components/schemas/MetricPoint"
+          maxItems: 1000
+          minItems: 1
+        source:
+          type: string
+          description: Optional identifier of the sender.
+          maxLength: 128
+          minLength: 1
+      required:
+      - points
+    MetricDefinitionResponse:
+      type: object
+      properties:
+        aggregation:
+          type: string
+          enum:
+          - AVG
+          - SUM
+          - MAX
+          - P95
+        createdAt:
+          type: string
+          format: date-time
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        serviceId:
+          type: string
+          format: uuid
+        unit:
+          type: string
+    MetricPoint:
+      type: object
+      additionalProperties: false
+      description: One sample of a metric.
+      properties:
+        metricId:
+          type: string
+          format: uuid
+        ts:
+          type: string
+          format: date-time
+          description: RFC 3339 date-time with an offset; stored with microsecond
+            precision.
+        value:
+          type: number
+          format: double
+          description: "A finite number with |value| <= 1e100. A larger magnitude\
+            \ or a number beyond the double range rejects only this point (listed\
+            \ in `rejected`), not the batch."
+      required:
+      - metricId
+      - ts
+      - value
+    MetricPointBucket:
+      type: object
+      properties:
+        count:
+          type: integer
+          format: int64
+          description: Number of samples in the bucket.
+        ts:
+          type: string
+          format: date-time
+          description: Start of the bucket (epoch-aligned; the first bucket may start
+            before from).
+        value:
+          type:
+          - number
+          - "null"
+          format: double
+          description: Aggregated value of the bucket; null when the aggregate is
+            not a finite number (not reachable with values accepted by ingestion).
+    MetricPoints:
+      type: object
+      description: A metric downsampled into epoch-aligned buckets.
+      properties:
+        aggregation:
+          type: string
+          description: How the samples of each bucket are combined (from the metric
+            definition).
+          enum:
+          - AVG
+          - SUM
+          - MAX
+          - P95
+        from:
+          type: string
+          format: date-time
+          description: "Inclusive start of the queried range, rounded up to whole\
+            \ microseconds."
+        metricId:
+          type: string
+          format: uuid
+        points:
+          type: array
+          description: Non-empty buckets in ascending order; at most 2000.
+          items:
+            $ref: "#/components/schemas/MetricPointBucket"
+        step:
+          type: string
+          description: Bucket width used (ISO 8601 duration).
+          example: PT5M
+        to:
+          type: string
+          format: date-time
+          description: "Exclusive end of the queried range, rounded up to whole microseconds."
+    Problem:
+      type: object
+      description: RFC 9457 problem details (application/problem+json).
+      properties:
+        detail:
+          type: string
+        errors:
+          type: array
+          description: "Present on validation problems: one entry per violation."
+          items:
+            $ref: "#/components/schemas/ProblemFieldError"
+        instance:
+          type: string
+          description: Request path.
+        status:
+          type: integer
+          format: int32
+        title:
+          type: string
+        type:
+          type: string
+          description: "Problem type URI, urn:pulseboard:problem:<kind>."
+          example: urn:pulseboard:problem:validation
+    ProblemFieldError:
+      type: object
+      properties:
+        field:
+          type: string
+        message:
+          type: string
+    RefreshRequest:
+      type: object
+      properties:
+        refreshToken:
+          type: string
+          maxLength: 256
+          minLength: 0
+      required:
+      - refreshToken
+    RegisterRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 320
+          minLength: 0
+        password:
+          type: string
+          maxLength: 128
+          minLength: 12
+        tenantName:
+          type: string
+          maxLength: 200
+          minLength: 0
+        tenantSlug:
+          type: string
+          minLength: 1
+          pattern: "^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$"
+      required:
+      - email
+      - password
+      - tenantName
+      - tenantSlug
+    RejectedPoint:
+      type: object
+      properties:
+        index:
+          type: integer
+          format: int32
+          description: Zero-based index of the point in the batch.
+        reason:
+          type: string
+          description: "Why the point was not stored: unknown metric | timestamp is\
+            \ outside the range accepted for storage | timestamp cannot be represented\
+            \ | value must be a finite number | value magnitude must not exceed 1e100\
+            \ | superseded by a later point with the same metricId and ts."
+          example: unknown metric
+    ServiceResponse:
+      type: object
+      properties:
+        createdAt:
+          type: string
+          format: date-time
+        environment:
+          type: string
+          enum:
+          - PROD
+          - STAGING
+          - DEV
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+    TokenResponse:
+      type: object
+      properties:
+        accessToken:
+          type: string
+        accessTokenExpiresAt:
+          type: string
+          format: date-time
+        refreshToken:
+          type: string
+        refreshTokenExpiresAt:
+          type: string
+          format: date-time
+        role:
+          type: string
+        tenantId:
+          type: string
+          format: uuid
+        tokenType:
+          type: string
+        userId:
+          type: string
+          format: uuid
+  securitySchemes:
+    apiKey:
+      description: Tenant API key from /api/v1/api-keys.
+      in: header
+      name: X-Api-Key
+      type: apiKey
+    bearerAuth:
+      bearerFormat: JWT
+      description: "Access token from /api/v1/auth/login, /register or /refresh."
+      scheme: bearer
+      type: http

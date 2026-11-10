@@ -75,8 +75,16 @@ management:
 springdoc:
   api-docs:
     path: /v3/api-docs
+    version: openapi_3_1
   swagger-ui:
     path: /swagger-ui.html
+  # The exported contract (contracts/api-core.openapi.yaml) must be byte-for-byte reproducible.
+  writer-with-order-by-keys: true
+  writer-with-default-pretty-printer: true
+  default-consumes-media-type: application/json
+  default-produces-media-type: application/json
+  # Error responses are documented per operation; the advice's handlers do not apply to every operation.
+  override-with-generic-response: false
 
 pulseboard:
   security:
@@ -100,6 +108,33 @@ pulseboard:
       # Login attempts per tenant slug + email, checked before password hashing: 10 per 15 minutes.
       account-capacity: ${AUTH_RATE_LIMIT_ACCOUNT_CAPACITY:10}
       account-refill-period: ${AUTH_RATE_LIMIT_ACCOUNT_PERIOD:15m}
+    query:
+      # Metric queries per tenant (all its users share the bucket): 120 per minute.
+      tenant-capacity: ${METRIC_QUERY_RATE_LIMIT_CAPACITY:120}
+      refill-period: ${METRIC_QUERY_RATE_LIMIT_PERIOD:1m}
+    api-key:
+      # Requests carrying X-Api-Key per client address, applied before the key is looked up: 1200 per minute.
+      client-capacity: ${API_KEY_RATE_LIMIT_CLIENT_CAPACITY:1200}
+      client-refill-period: ${API_KEY_RATE_LIMIT_CLIENT_PERIOD:1m}
+      # Failed API key authentications per client address; when exhausted, keys from that client are not even
+      # looked up: 20 per minute.
+      invalid-capacity: ${API_KEY_RATE_LIMIT_INVALID_CAPACITY:20}
+      invalid-refill-period: ${API_KEY_RATE_LIMIT_INVALID_PERIOD:1m}
+  query:
+    # Transaction-local statement_timeout of a metric query; exceeding it answers 503 query-timeout.
+    statement-timeout: ${METRIC_QUERY_STATEMENT_TIMEOUT:5s}
+  ingest:
+    # Raw request body limit. A full batch (1000 points) is about 120 KB of compact JSON.
+    max-body-bytes: ${INGEST_MAX_BODY_BYTES:524288}
+    # Batches per tenant per refill period (token bucket in Redis): FREE 60/min, PRO 600/min.
+    free-batch-capacity: ${INGEST_RATE_LIMIT_FREE_CAPACITY:60}
+    pro-batch-capacity: ${INGEST_RATE_LIMIT_PRO_CAPACITY:600}
+    refill-period: ${INGEST_RATE_LIMIT_PERIOD:1m}
+  api-key-cache:
+    # Successful API key authentications are cached in Redis for this long.
+    ttl: ${API_KEY_CACHE_TTL:60s}
+    # Revocation markers replace cached results immediately and outlive them by far.
+    revoked-marker-ttl: ${API_KEY_CACHE_REVOKED_MARKER_TTL:24h}
 
 ---
 spring:

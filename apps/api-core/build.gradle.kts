@@ -29,6 +29,7 @@ val mapstructVersion = "1.6.3"
 val springdocVersion = "3.2.0"
 val archunitVersion = "1.5.1"
 val bouncycastleVersion = "1.86"
+val jsonSchemaValidatorVersion = "3.0.9"
 
 dependencies {
     // Web (Spring MVC) and validation
@@ -49,6 +50,9 @@ dependencies {
 
     // Redis
     implementation("org.springframework.boot:spring-boot-starter-data-redis")
+
+    // JSON Schema validation of ingestion batches (contracts/events/metric-batch.schema.json)
+    implementation("com.networknt:json-schema-validator:$jsonSchemaValidatorVersion")
 
     // API documentation
     implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:$springdocVersion")
@@ -84,9 +88,18 @@ tasks.withType<JavaCompile>().configureEach {
     )
 }
 
+// Contracts shared with the other components. The tests compare the generated OpenAPI document and the bundled
+// ingestion schema with these files, so a drift fails the build.
+val contractsDir = layout.projectDirectory.dir("../../contracts")
+val openApiContract = contractsDir.file("api-core.openapi.yaml")
+val metricBatchSchemaContract = contractsDir.file("events/metric-batch.schema.json")
+
 tasks.withType<Test>().configureEach {
     useJUnitPlatform()
     systemProperty("spring.profiles.active", "test")
+    systemProperty("pulseboard.contracts.openapi", openApiContract.asFile.absolutePath)
+    systemProperty("pulseboard.contracts.metric-batch-schema", metricBatchSchemaContract.asFile.absolutePath)
+    inputs.files(openApiContract, metricBatchSchemaContract).withPathSensitivity(PathSensitivity.NONE)
     testLogging {
         events("passed", "skipped", "failed")
         exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
@@ -105,4 +118,32 @@ tasks.bootJar {
 
 tasks.jar {
     enabled = false
+}
+
+// Regenerates contracts/api-core.openapi.yaml from the running application (springdoc on a Testcontainers backed
+// context). The regular test suite fails when the checked-in file differs from what this task writes.
+tasks.register<Test>("generateOpenApiDocs") {
+    description = "Writes the springdoc OpenAPI document to contracts/api-core.openapi.yaml."
+    group = "documentation"
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    filter {
+        includeTestsMatching("io.pulseboard.core.api.OpenApiContractTest")
+    }
+    systemProperty("pulseboard.contracts.openapi.write", "true")
+    outputs.upToDateWhen { false }
+    outputs.cacheIf { false }
+}
+
+// Fails when contracts/api-core.openapi.yaml differs from the document the application serves.
+tasks.register<Test>("verifyOpenApiDocs") {
+    description = "Checks that contracts/api-core.openapi.yaml matches the springdoc OpenAPI document."
+    group = "verification"
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    filter {
+        includeTestsMatching("io.pulseboard.core.api.OpenApiContractTest")
+    }
+    outputs.upToDateWhen { false }
+    outputs.cacheIf { false }
 }
