@@ -57,15 +57,13 @@ describe('AnomalyActions', () => {
     expect(states[0].acknowledgedBy).toBe('user-1');
     expect(actions.pending().has(target.id)).toBe(true);
 
-    http
-      .expectOne({ method: 'POST', url: `/api/v1/anomalies/${target.id}/ack` })
-      .flush(
-        rawAnomaly({
-          id: target.id,
-          acknowledgedAt: '2026-05-01T12:31:00Z',
-          acknowledgedBy: 'user-1',
-        }),
-      );
+    http.expectOne({ method: 'POST', url: `/api/v1/anomalies/${target.id}/ack` }).flush(
+      rawAnomaly({
+        id: target.id,
+        acknowledgedAt: '2026-05-01T12:31:00Z',
+        acknowledgedBy: 'user-1',
+      }),
+    );
 
     await expect(done).resolves.toBe(true);
     expect(seen).toEqual(['update:acked', 'update:acked']);
