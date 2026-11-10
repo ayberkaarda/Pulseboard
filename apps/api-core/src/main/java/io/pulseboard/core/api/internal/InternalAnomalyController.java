@@ -51,7 +51,10 @@ public class InternalAnomalyController {
                     + "with that tenant, and what the database holds is published to the live streams of the "
                     + "tenant. Ids that do not exist, or that belong to another tenant than claimed, are counted "
                     + "in `unknown` and nothing is published for them. Nothing is inserted, so a replay is "
-                    + "harmless.",
+                    + "harmless. Publishing is not atomic: when the message bus fails part-way the call answers "
+                    + "503 after some entries were already published, and a retry publishes those again. Live "
+                    + "streams therefore may deliver an anomaly more than once; the event id of every stream "
+                    + "event is the anomaly id, which clients use to drop duplicates.",
             security = @SecurityRequirement(name = OpenApiConfiguration.INTERNAL_HMAC_AUTH),
             requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true,
                     content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
