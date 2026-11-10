@@ -14,3 +14,4 @@ Short list of behaviours that are deliberate or accepted for now.
 - **Anomaly feed order.** `GET /api/v1/anomalies` is sorted by `window_start`, not by the time the anomaly was detected, so a late detection can appear among older entries.
 - **Stream limits.** Each tenant may hold 10 live streams (`ANOMALY_STREAM_MAX_PER_TENANT`) and an instance 500; more are refused with 429. Streams end after 30 minutes or at token expiry and are not replayed.
 - **End-to-end check is not part of push or pull request builds.** `.github/workflows/e2e.yml` runs `scripts/e2e/run.py` nightly and on manual dispatch only. A failure shows up the next day, not on the commit that caused it.
+- **Acknowledgements and the expected range.** There is no SSE event for acknowledgements, so a second tab learns of an acknowledgement at its next re-sync; the API exposes no per-bucket mean or standard deviation, so the metric chart draws no expected-range band.
