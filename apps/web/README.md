@@ -2,6 +2,8 @@
 
 Angular 22 single-page application for Pulseboard (standalone components, signals, zoneless change detection, strict TypeScript).
 
+Visual identity, tokens, theming and screen layouts are documented in [DESIGN.md](DESIGN.md).
+
 ## Requirements
 
 - Node.js 22.22.3+, 24.15+ or 26 (LTS; the container image uses 26)

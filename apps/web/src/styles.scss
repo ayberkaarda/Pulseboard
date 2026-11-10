@@ -1,9 +1,3 @@
-html,
-body {
-  height: 100%;
-}
-
-body {
-  margin: 0;
-  font-family: Roboto, 'Helvetica Neue', Arial, sans-serif;
-}
+@use 'styles/tokens';
+@use 'styles/theme';
+@use 'styles/base';

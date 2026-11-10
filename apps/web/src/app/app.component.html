@@ -1,6 +1,78 @@
-<mat-toolbar color="primary" class="app-toolbar">
-  <h1 class="app-title">{{ title() }}</h1>
-</mat-toolbar>
-<main class="app-content">
-  <router-outlet />
-</main>
+<button type="button" class="skip-link" (click)="skipToContent()">Skip to content</button>
+
+<mat-sidenav-container class="shell">
+  <mat-sidenav
+    class="rail"
+    [mode]="wide() ? 'side' : 'over'"
+    [opened]="wide() || drawerOpen()"
+    (openedChange)="drawerOpen.set($event)"
+    [disableClose]="wide()"
+  >
+    <div class="brand">
+      <app-brand-mark [animate]="true" />
+      <span class="pb-wordmark">pulseboard</span>
+    </div>
+
+    <nav class="nav" aria-label="Primary">
+      <ul>
+        @for (section of sections; track section.id) {
+          <li>
+            <button
+              type="button"
+              class="nav-item"
+              [class.active]="section.id === activeId()"
+              [attr.aria-current]="section.id === activeId() ? 'page' : null"
+              (click)="selectSection(section.id)"
+            >
+              <app-icon [name]="section.icon" />
+              <span>{{ section.label }}</span>
+            </button>
+          </li>
+        }
+      </ul>
+    </nav>
+
+    <div class="rail-footer">
+      <button type="button" class="nav-item" (click)="openSignalKey()">
+        <app-icon name="key" />
+        <span>Signal key</span>
+      </button>
+      <app-theme-switch />
+    </div>
+  </mat-sidenav>
+
+  <mat-sidenav-content class="content">
+    @if (!wide()) {
+      <header class="topbar">
+        <button
+          mat-icon-button
+          type="button"
+          aria-label="Open navigation"
+          [attr.aria-expanded]="drawerOpen()"
+          (click)="drawerOpen.set(true)"
+        >
+          <app-icon name="menu" />
+        </button>
+        <app-brand-mark />
+        <span class="pb-wordmark">pulseboard</span>
+      </header>
+    }
+
+    <main #main id="main" class="main" tabindex="-1">
+      <header class="page-head">
+        <h1 class="page-title">{{ active().label }}</h1>
+        <p class="page-summary">{{ active().summary }}</p>
+      </header>
+
+      <app-empty-state [heading]="active().emptyTitle" [body]="active().emptyBody">
+        @if (active().id === 'overview') {
+          <button mat-flat-button type="button" (click)="openSignalKey()">
+            Read the signal key
+          </button>
+        }
+      </app-empty-state>
+
+      <router-outlet />
+    </main>
+  </mat-sidenav-content>
+</mat-sidenav-container>

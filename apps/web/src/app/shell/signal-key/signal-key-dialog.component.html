@@ -1,0 +1,72 @@
+<div class="head">
+  <h2 mat-dialog-title class="title">Signal key</h2>
+  <button mat-icon-button mat-dialog-close aria-label="Close signal key">
+    <app-icon name="close" />
+  </button>
+</div>
+
+<mat-dialog-content>
+  <p class="intro">
+    Color is reserved for signal. Every color below also has a shape or a count, so nothing depends
+    on color alone.
+  </p>
+
+  <section aria-labelledby="key-health">
+    <h3 id="key-health">Service health</h3>
+    <dl>
+      @for (entry of health; track entry.value) {
+        <div class="row">
+          <dt><app-health-glyph [state]="entry.value" />{{ entry.label }}</dt>
+          <dd>{{ entry.meaning }}</dd>
+        </div>
+      }
+    </dl>
+  </section>
+
+  <section aria-labelledby="key-severity">
+    <h3 id="key-severity">Anomaly severity</h3>
+    <dl>
+      @for (entry of severity; track entry.value) {
+        <div class="row">
+          <dt><app-severity-glyph [severity]="entry.value" />{{ entry.label }}</dt>
+          <dd>{{ entry.meaning }}</dd>
+        </div>
+      }
+    </dl>
+  </section>
+
+  <section aria-labelledby="key-chart">
+    <h3 id="key-chart">Metric charts</h3>
+    <dl>
+      <div class="row">
+        <dt>
+          <svg class="mark" viewBox="0 0 40 12" aria-hidden="true">
+            <path class="observed" d="M1 8l7-2 6 2 7-3 6 1 6-2 6 1" />
+          </svg>
+          Observed
+        </dt>
+        <dd>The metric as reported, one line per series.</dd>
+      </div>
+      <div class="row">
+        <dt>
+          <svg class="mark" viewBox="0 0 40 12" aria-hidden="true">
+            <path class="expected" d="M1 3h38v6H1z" />
+          </svg>
+          Expected range
+        </dt>
+        <dd>Where the detector expects the metric to be right now.</dd>
+      </div>
+      <div class="row">
+        <dt>
+          <svg class="mark" viewBox="0 0 40 12" aria-hidden="true">
+            <path class="expected" d="M1 5h38v5H1z" />
+            <path class="observed" d="M1 8l9-1 6 1 4-6 5 6 14-1" />
+            <circle class="anomaly" cx="20" cy="2.6" r="2.2" />
+          </svg>
+          Anomaly
+        </dt>
+        <dd>A ring where the metric left its range, colored by severity.</dd>
+      </div>
+    </dl>
+  </section>
+</mat-dialog-content>

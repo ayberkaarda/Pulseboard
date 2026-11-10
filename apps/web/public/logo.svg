@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-labelledby="pulseboard-logo-title">
+  <title id="pulseboard-logo-title">Pulseboard</title>
+  <rect width="32" height="32" rx="8" fill="#15191c"/>
+  <rect x="4" y="15" width="24" height="8" rx="1.5" fill="#fbfbfa" opacity=".16"/>
+  <path d="M5 19.5l3.5-1.5 3.5 2 3-1.5 3.5-6.5 3.5 7.5 3-1.5 3 .5" fill="none" stroke="#fbfbfa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="18.5" cy="9.4" r="3" fill="#cf4f1a" stroke="#15191c" stroke-width="1.5"/>
+</svg>

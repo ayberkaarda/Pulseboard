@@ -1,16 +1,131 @@
 :host {
+  display: block;
+  height: 100%;
+}
+
+.shell {
+  height: 100%;
+}
+
+.rail {
+  width: var(--pb-rail-width);
+  border-right: 1px solid var(--pb-line);
+}
+
+.rail ::ng-deep .mat-drawer-inner-container {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  padding: var(--pb-space-4) var(--pb-space-3);
 }
 
-.app-title {
+.brand,
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: var(--pb-space-3);
+}
+
+.brand {
+  padding: var(--pb-space-1) var(--pb-space-2) var(--pb-space-6);
+}
+
+ul {
+  display: grid;
+  gap: 2px;
   margin: 0;
-  font-size: 1.25rem;
-  font-weight: 500;
+  padding: 0;
+  list-style: none;
 }
 
-.app-content {
-  flex: 1;
-  padding: 16px;
+.nav-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--pb-space-3);
+  width: 100%;
+  min-height: 40px;
+  padding: 0 var(--pb-space-3);
+  border: 0;
+  border-radius: var(--pb-radius-sm);
+  background: none;
+  color: var(--pb-ink-2);
+  font: inherit;
+  font-weight: 520;
+  text-align: start;
+  cursor: pointer;
+  transition: background-color var(--pb-duration-quick) var(--pb-ease-standard);
+
+  &:hover {
+    background: var(--pb-wash-hover);
+    color: var(--pb-ink);
+  }
+
+  &.active {
+    background: var(--pb-wash-selected);
+    color: var(--pb-ink);
+    font-weight: 640;
+  }
+
+  &.active::before {
+    content: '';
+    position: absolute;
+    inset: 10px auto 10px 0;
+    width: 3px;
+    border-radius: 2px;
+    background: var(--pb-flare);
+  }
+}
+
+.rail-footer {
+  display: grid;
+  gap: var(--pb-space-3);
+  margin-top: auto;
+  padding-top: var(--pb-space-4);
+  border-top: 1px solid var(--pb-line);
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  height: 56px;
+  padding: 0 var(--pb-space-4) 0 var(--pb-space-1);
+  background: var(--pb-canvas);
+  border-bottom: 1px solid var(--pb-line);
+  --pb-mark-size: 28px;
+}
+
+.main {
+  max-width: var(--pb-content-max);
+  padding: var(--pb-space-7) var(--pb-space-7) var(--pb-space-8);
+  outline: none;
+}
+
+.page-head {
+  margin-bottom: var(--pb-space-6);
+}
+
+.page-title {
+  font-size: var(--pb-text-3xl);
+  line-height: 1.1;
+  font-weight: 600;
+  font-stretch: var(--pb-stretch-condensed);
+  letter-spacing: -0.02em;
+}
+
+.page-summary {
+  max-width: 60ch;
+  margin-top: var(--pb-space-2);
+  color: var(--pb-ink-2);
+  font-size: var(--pb-text-lg);
+}
+
+@media (max-width: 959.98px) {
+  .main {
+    padding: var(--pb-space-5) var(--pb-space-4) var(--pb-space-7);
+  }
+
+  .page-title {
+    font-size: var(--pb-text-2xl);
+  }
 }

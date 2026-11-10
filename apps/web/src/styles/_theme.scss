@@ -1,0 +1,106 @@
+@use '@angular/material' as mat;
+
+// Angular Material (M3) theme.
+//
+// `theme-type: color-scheme` makes Material emit light-dark() values, so a
+// single theme serves both modes and follows `color-scheme` on <html>.
+// The system color roles are then remapped onto Pulseboard tokens: the
+// generated tonal palette only fills roles that are not overridden here.
+
+html {
+  color-scheme: light dark;
+
+  @include mat.theme(
+    (
+      color: (
+        primary: mat.$azure-palette,
+        theme-type: color-scheme,
+      ),
+      typography: (
+        plain-family: var(--pb-font),
+        brand-family: var(--pb-font),
+        bold-weight: 640,
+        medium-weight: 560,
+        regular-weight: 420,
+      ),
+      density: 0,
+    )
+  );
+
+  @include mat.theme-overrides(
+    (
+      primary: var(--pb-ink),
+      on-primary: var(--pb-ink-inverse),
+      primary-container: var(--pb-wash-selected),
+      on-primary-container: var(--pb-ink),
+      secondary-container: var(--pb-wash-selected),
+      on-secondary-container: var(--pb-ink),
+      surface: var(--pb-surface),
+      on-surface: var(--pb-ink),
+      on-surface-variant: var(--pb-ink-2),
+      surface-variant: var(--pb-surface-sunken),
+      surface-container-lowest: var(--pb-surface-raised),
+      surface-container-low: var(--pb-surface),
+      surface-container: var(--pb-surface),
+      surface-container-high: var(--pb-surface-raised),
+      surface-container-highest: var(--pb-surface-raised),
+      background: var(--pb-canvas),
+      on-background: var(--pb-ink),
+      outline: var(--pb-line-strong),
+      outline-variant: var(--pb-line),
+      inverse-surface: var(--pb-ink),
+      inverse-on-surface: var(--pb-ink-inverse),
+      error: var(--pb-health-down),
+      corner-extra-small: var(--pb-radius-xs),
+      corner-small: var(--pb-radius-sm),
+      corner-medium: var(--pb-radius-md),
+      corner-large: var(--pb-radius-lg),
+      corner-extra-large: var(--pb-radius-lg),
+    )
+  );
+
+  @include mat.dialog-overrides(
+    (
+      container-shape: var(--pb-radius-lg),
+      container-elevation-shadow: var(--pb-shadow-overlay),
+    )
+  );
+
+  // Buttons share the control radius with nav items and toggles; pills are
+  // reserved for status chips.
+  @include mat.button-overrides(
+    (
+      filled-container-shape: var(--pb-radius-sm),
+      outlined-container-shape: var(--pb-radius-sm),
+      protected-container-shape: var(--pb-radius-sm),
+      text-container-shape: var(--pb-radius-sm),
+      tonal-container-shape: var(--pb-radius-sm),
+    )
+  );
+
+  @include mat.button-toggle-overrides(
+    (
+      shape: var(--pb-radius-sm),
+      divider-color: var(--pb-line),
+      selected-state-background-color: var(--pb-wash-selected),
+    )
+  );
+
+  @include mat.sidenav-overrides(
+    (
+      container-shape: 0,
+      container-background-color: var(--pb-surface),
+      content-background-color: var(--pb-canvas),
+      scrim-color: light-dark(rgb(21 25 28 / 40%), rgb(0 0 0 / 60%)),
+    )
+  );
+}
+
+// An explicit choice from the theme switch wins over the OS preference.
+html[data-theme='light'] {
+  color-scheme: light;
+}
+
+html[data-theme='dark'] {
+  color-scheme: dark;
+}

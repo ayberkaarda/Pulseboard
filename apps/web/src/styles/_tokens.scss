@@ -1,0 +1,117 @@
+// Pulseboard design tokens.
+//
+// Every color token is declared once with light-dark(), so the active
+// `color-scheme` on <html> picks the value. The theme switch only changes
+// `color-scheme` (see _theme.scss); nothing else needs to be redefined.
+//
+// Contrast ratios in the comments are WCAG 2.x, measured against
+// --pb-surface (light #fbfbfa, dark #161a1d). DESIGN.md documents the method.
+
+:root {
+  // Neutrals: graphite ink on porcelain, cool-leaning and low chroma so that
+  // hue is left free for signal.
+  --pb-canvas: light-dark(#f2f3f2, #0e1113);
+  --pb-surface: light-dark(#fbfbfa, #161a1d);
+  --pb-surface-sunken: light-dark(#e7e9e8, #111416);
+  --pb-surface-raised: light-dark(#ffffff, #1f2428);
+
+  --pb-ink: light-dark(#15191c, #e9ecec); // 17.1 / 14.7
+  --pb-ink-2: light-dark(#454e55, #b3bcc2); // 8.2 / 9.1
+  --pb-ink-3: light-dark(#5f6870, #8f99a1); // 5.5 / 6.0
+  --pb-ink-inverse: light-dark(#fbfbfa, #15191c);
+
+  --pb-line: light-dark(#dcdfde, #2a3034); // decorative hairline
+  --pb-line-strong: light-dark(#7d868c, #6c767e); // control boundary, 3.6 / 3.8
+
+  // Interaction: ink is the accent. Hover and pressed are ink washes.
+  --pb-wash-hover: light-dark(rgb(21 25 28 / 6%), rgb(233 236 236 / 7%));
+  --pb-wash-selected: light-dark(rgb(21 25 28 / 9%), rgb(233 236 236 / 11%));
+  --pb-focus: light-dark(#15191c, #e9ecec);
+
+  // Flare: the brand hue. It is also the anomaly severity ramp, so the brand
+  // literally is the thing the product looks for.
+  --pb-flare: light-dark(#cf4f1a, #e0622a);
+
+  // Anomaly severity: one-hue ordinal ramp (validated monotone, single hue).
+  // Severity is never shown by color alone; the bar glyph carries the level.
+  --pb-severity-low: light-dark(#e8925e, #8f4325);
+  --pb-severity-medium: light-dark(#cf4f1a, #e0622a);
+  --pb-severity-high: light-dark(#962112, #ffa27a);
+
+  // Service health: state colors, each paired with a distinct glyph shape.
+  --pb-health-healthy: light-dark(#1f8a4c, #3fbf72); // 4.2 / 7.4
+  --pb-health-degraded: light-dark(#a86a00, #e2a63a); // 4.3 / 8.1
+  --pb-health-down: light-dark(#c8322f, #f2615c); // 5.1 / 5.5
+  --pb-health-unknown: light-dark(#727b82, #7c868e); // 4.2 / 4.7
+
+  // Chart series, categorical, fixed order. Validated for CVD separation on
+  // both surfaces; light slots 3-5 sit below 3:1 and require direct labels.
+  --pb-series-1: light-dark(#2a78d6, #3987e5);
+  --pb-series-2: light-dark(#eb6834, #d95926);
+  --pb-series-3: light-dark(#1baf7a, #199e70);
+  --pb-series-4: light-dark(#eda100, #c98500);
+  --pb-series-5: light-dark(#e87ba4, #d55181);
+  --pb-series-6: light-dark(#008300, #008300);
+  --pb-series-7: light-dark(#6250d6, #9085e9);
+  --pb-series-8: light-dark(#e34948, #e66767);
+
+  // Chart chrome.
+  --pb-chart-grid: light-dark(#e3e6e5, #252a2e);
+  --pb-chart-axis: light-dark(#c3c9cc, #3a4248);
+  --pb-chart-expected: light-dark(rgb(21 25 28 / 10%), rgb(233 236 236 / 14%));
+
+  // Typography.
+  --pb-font: 'Instrument Sans Variable', ui-sans-serif, system-ui, 'Segoe UI', sans-serif;
+  --pb-text-xs: 0.75rem; // 12 / 16
+  --pb-text-sm: 0.8125rem; // 13 / 20
+  --pb-text-md: 0.875rem; // 14 / 20
+  --pb-text-lg: 1rem; // 16 / 24
+  --pb-text-xl: 1.25rem; // 20 / 28
+  --pb-text-2xl: 1.75rem; // 28 / 32
+  --pb-text-3xl: 2.5rem; // 40 / 44
+  --pb-stretch-condensed: 78%;
+  --pb-stretch-semi: 88%;
+
+  // Space: 4px base.
+  --pb-space-1: 4px;
+  --pb-space-2: 8px;
+  --pb-space-3: 12px;
+  --pb-space-4: 16px;
+  --pb-space-5: 24px;
+  --pb-space-6: 32px;
+  --pb-space-7: 48px;
+  --pb-space-8: 64px;
+
+  // Radius encodes hierarchy: controls < panels < overlays.
+  --pb-radius-xs: 2px;
+  --pb-radius-sm: 6px;
+  --pb-radius-md: 10px;
+  --pb-radius-lg: 14px;
+  --pb-radius-pill: 999px;
+
+  // Elevation: flat surfaces with hairlines; shadow only for overlays.
+  --pb-shadow-overlay:
+    0 1px 2px light-dark(rgb(21 25 28 / 10%), rgb(0 0 0 / 40%)),
+    0 12px 32px -8px light-dark(rgb(21 25 28 / 22%), rgb(0 0 0 / 60%));
+
+  // Motion.
+  --pb-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --pb-ease-exit: cubic-bezier(0.3, 0, 1, 1);
+  --pb-duration-quick: 120ms;
+  --pb-duration-base: 200ms;
+  --pb-duration-slow: 320ms;
+  --pb-duration-trace: 900ms;
+
+  // Layout.
+  --pb-rail-width: 248px;
+  --pb-content-max: 1280px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --pb-duration-quick: 0ms;
+    --pb-duration-base: 0ms;
+    --pb-duration-slow: 0ms;
+    --pb-duration-trace: 0ms;
+  }
+}
