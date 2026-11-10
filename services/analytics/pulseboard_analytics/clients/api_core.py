@@ -1,6 +1,7 @@
 """HMAC-signed client for the api-core anomaly notification endpoint."""
 
 import json
+import threading
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -64,14 +65,14 @@ class ApiCoreClient:
         sleep: Callable[[float], None] = time.sleep,
         transport: httpx2.BaseTransport | None = None,
     ) -> None:
+        self._base_url = base_url
         self._secret = secret
         self._timeout = timeout
         self._sleep = sleep
-        self._http = httpx2.Client(base_url=base_url, timeout=timeout, transport=transport)
+        self._transport = transport
 
     def close(self) -> None:
-        """Release the underlying connection pool."""
-        self._http.close()
+        """Release resources; each call owns its own connection pool, so nothing is held."""
 
     def notify(
         self, anomalies: Sequence[StoredAnomaly], budget: Budget | None = None
@@ -79,20 +80,36 @@ class ApiCoreClient:
         """Send ``anomalies`` in batches of at most 500; a failed batch is logged, not raised.
 
         With a ``budget`` the whole call, retries and backoff sleeps included, never takes longer
-        than the time left in it: every request gets at most that time as its timeout, and no
-        attempt starts when it is spent. A failed batch does not stop the following ones.
+        than the time left in it. httpx timeouts apply per network operation, so a server that
+        trickles bytes could keep one request alive for ever; a watchdog therefore closes the
+        call's own client (and with it every open socket) when the budget ends, and the request
+        timeout is also capped to what is left. No attempt starts when the budget is spent. A
+        failed batch does not stop the following ones.
         """
+        client = httpx2.Client(
+            base_url=self._base_url, timeout=self._timeout, transport=self._transport
+        )
+        watchdog: threading.Timer | None = None
+        if budget is not None:
+            watchdog = threading.Timer(max(0.0, budget.remaining_seconds()), client.close)
+            watchdog.daemon = True
+            watchdog.start()
         delivered = 0
         failed = 0
-        for start in range(0, len(anomalies), MAX_BATCH):
-            batch = anomalies[start : start + MAX_BATCH]
-            if self._send(_payload(batch), len(batch), budget):
-                delivered += len(batch)
-            else:
-                failed += len(batch)
+        try:
+            for start in range(0, len(anomalies), MAX_BATCH):
+                batch = anomalies[start : start + MAX_BATCH]
+                if self._send(client, _payload(batch), len(batch), budget):
+                    delivered += len(batch)
+                else:
+                    failed += len(batch)
+        finally:
+            if watchdog is not None:
+                watchdog.cancel()
+            client.close()
         return NotifyResult(delivered=delivered, failed=failed)
 
-    def _send(self, body: bytes, count: int, budget: Budget | None) -> bool:
+    def _send(self, client: httpx2.Client, body: bytes, count: int, budget: Budget | None) -> bool:
         headers = {"Content-Type": "application/json", SIGNATURE_HEADER: sign(self._secret, body)}
         for attempt in range(1, MAX_ATTEMPTS + 1):
             outcome: str
@@ -104,18 +121,20 @@ class ApiCoreClient:
                     return False
                 timeout = min(timeout, left)
             try:
-                response = self._http.post(
-                    NOTIFY_PATH, content=body, headers=headers, timeout=timeout
-                )
-            except httpx2.HTTPError as error:
+                # The body is not read: the status decides, and closing the stream drops the socket.
+                with client.stream(
+                    "POST", NOTIFY_PATH, content=body, headers=headers, timeout=timeout
+                ) as response:
+                    status = response.status_code
+            except (httpx2.HTTPError, RuntimeError, OSError) as error:
                 outcome = type(error).__name__
             else:
-                if response.is_success:
+                if 200 <= status < 300:
                     return True
-                if not _is_retryable(response.status_code):
-                    _log.warning("notify_rejected", status=response.status_code, count=count)
+                if not _is_retryable(status):
+                    _log.warning("notify_rejected", status=status, count=count)
                     return False
-                outcome = f"status {response.status_code}"
+                outcome = f"status {status}"
             if attempt == MAX_ATTEMPTS:
                 _log.error("notify_failed", reason=outcome, attempts=attempt, count=count)
                 return False
