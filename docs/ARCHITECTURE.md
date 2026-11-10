@@ -251,7 +251,16 @@ Both detectors are pure functions over a `pandas.DataFrame` with a documented in
 
 #### Server-sent events
 
-`GET /api/v1/stream/anomalies` (JWT bearer header, tenant taken from the token only) sends an `anomaly` event per new anomaly with the anomaly id as the event id and the anomaly JSON as data, plus a `: ping` comment every 30 seconds. Limits: 10 streams per tenant (`ANOMALY_STREAM_MAX_PER_TENANT`) and 500 per instance (429 above), 30 minutes maximum lifetime or token expiry, whichever comes first. Events are not replayed after a reconnect; clients read `GET /api/v1/anomalies` to catch up.
+`GET /api/v1/stream/anomalies` (JWT bearer header or a one-time `ticket`, tenant taken from the token only) sends an `anomaly` event per new anomaly with the anomaly id as the event id and the anomaly JSON as data, plus a `: ping` comment every 30 seconds. Limits: 10 streams per tenant (`ANOMALY_STREAM_MAX_PER_TENANT`) and 500 per instance (429 above), 30 minutes maximum lifetime or token expiry, whichever comes first. Events are not replayed after a reconnect; clients read `GET /api/v1/anomalies` to catch up.
+
+#### One-time stream ticket
+
+A browser `EventSource` cannot send an `Authorization` header, so the client first calls `POST /api/v1/stream/ticket` (bearer authenticated, 30 per minute per user) and opens `GET /api/v1/stream/anomalies?ticket=...` with the result.
+
+- A ticket is 32 random bytes (base64url), valid for 30 seconds (`STREAM_TICKET_TTL`, never longer than the remaining life of the access token) and single use: it is consumed atomically (`GETDEL`) on the first request, also when that request is refused by a stream cap.
+- Only the SHA-256 hash is stored in Redis (`stream:ticket:{hash}`, value: tenant, user, token expiry). The plain ticket exists only in the response and in the one stream request. The stream ends at the stored token expiry, exactly as with a bearer header.
+- Every failure (unknown, expired, used, malformed, combined with other credentials) gets the same 401 body. Redis being unavailable gives 503.
+- The ticket is a credential in a URL, so it must not reach logs. `api-core` masks `ticket=` and `access_token=` values in all log messages (exception stack traces are not rewritten). The reverse proxy must keep `access_log off` or log `$uri` instead of `$request_uri`.
 
 A reverse proxy in front of this endpoint must:
 
@@ -259,9 +268,15 @@ A reverse proxy in front of this endpoint must:
 - disable buffering (`proxy_buffering off`, optionally `X-Accel-Buffering: no` upstream);
 - allow idle connections longer than the heartbeat (`proxy_read_timeout` of at least 60 s, 1 h is fine);
 - not compress `text/event-stream` (`gzip off` for this location);
-- forward the `Authorization` header.
+- forward the `Authorization` header and the query string (the `ticket` parameter).
 
-The bundled `apps/web/nginx.conf` does not have such a location yet; adding it is tracked for the frontend work (phase 4). Until then the stream is reachable through the proxy only with default buffering behaviour, and the end-to-end test talks to `api-core` directly.
+The end-to-end test talks to `api-core` directly. See `apps/web/nginx.conf` for the proxy configuration.
+
+#### Scheduling details worth knowing
+
+- A metric whose scoring exhausts the run budget is recorded in the Redis hash `analytics:score_all:slow` (id to failures and next retry time; exponential backoff starting at 120 s, capped at 3600 s, at most 500 entries, 24 hour TTL). While backing off it is skipped; once due it runs after all other metrics, and a success removes the entry.
+- Notifications reach subscribers in publish order per tenant: `api-core` delivers them to the stream through a single-threaded dispatcher, so one slow tenant cannot reorder another tenant's events or its own.
+- At startup `analytics` checks its database roles (`VERIFY_DB_ROLES`): no CREATE and required USAGE on schema `public`, nothing on other schemas, no reachable role with superuser, CREATEROLE, CREATEDB, REPLICATION or BYPASSRLS. `infra/postgres/init` creates the roles accordingly (`REVOKE ALL ON SCHEMA public FROM PUBLIC`, then explicit grants). The init scripts run only on an empty data volume, so changing them does not affect an existing dev volume; recreate it with `docker compose down -v`.
 
 ### 4.6 End-to-end check
 
