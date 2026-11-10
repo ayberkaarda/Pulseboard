@@ -30,6 +30,7 @@ val springdocVersion = "3.2.0"
 val archunitVersion = "1.5.1"
 val bouncycastleVersion = "1.86"
 val jsonSchemaValidatorVersion = "3.0.9"
+val wiremockVersion = "3.13.2"
 
 dependencies {
     // Web (Spring MVC) and validation
@@ -54,6 +55,9 @@ dependencies {
     // JSON Schema validation of ingestion batches (contracts/events/metric-batch.schema.json)
     implementation("com.networknt:json-schema-validator:$jsonSchemaValidatorVersion")
 
+    // Webhook delivery: the connection is made to an address that was validated beforehand (see alert.webhook)
+    implementation("org.apache.httpcomponents.client5:httpclient5")
+
     // API documentation
     implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:$springdocVersion")
 
@@ -74,6 +78,7 @@ dependencies {
     testImplementation("org.testcontainers:testcontainers-junit-jupiter")
     testImplementation("org.testcontainers:testcontainers-postgresql")
     testImplementation("com.tngtech.archunit:archunit-junit5:$archunitVersion")
+    testImplementation("org.wiremock:wiremock-standalone:$wiremockVersion")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 

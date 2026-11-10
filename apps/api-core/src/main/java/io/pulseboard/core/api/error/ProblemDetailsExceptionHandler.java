@@ -1,11 +1,13 @@
 package io.pulseboard.core.api.error;
 
+import io.pulseboard.core.application.alert.AlertRuleLimitExceededException;
 import io.pulseboard.core.application.anomaly.StreamLimitExceededException;
 import io.pulseboard.core.application.auth.AuthenticationFailedException;
 import io.pulseboard.core.application.common.DependencyUnavailableException;
 import io.pulseboard.core.application.common.InvalidRequestException;
 import io.pulseboard.core.application.common.ResourceConflictException;
 import io.pulseboard.core.application.common.ResourceNotFoundException;
+import io.pulseboard.core.application.common.StaleVersionException;
 import io.pulseboard.core.application.ingest.PayloadTooLargeException;
 import io.pulseboard.core.application.ratelimit.RateLimitExceededException;
 import io.pulseboard.core.application.ratelimit.RateLimiterUnavailableException;
@@ -52,6 +54,16 @@ public class ProblemDetailsExceptionHandler extends ResponseEntityExceptionHandl
     @ExceptionHandler(ResourceConflictException.class)
     ProblemDetail handleConflict(ResourceConflictException ex) {
         return problem(HttpStatus.CONFLICT, "conflict", "Conflict", ex.getMessage());
+    }
+
+    @ExceptionHandler(StaleVersionException.class)
+    ProblemDetail handleStaleVersion(StaleVersionException ex) {
+        return problem(HttpStatus.CONFLICT, "version-conflict", "Conflict", ex.getMessage());
+    }
+
+    @ExceptionHandler(AlertRuleLimitExceededException.class)
+    ProblemDetail handleAlertRuleLimit(AlertRuleLimitExceededException ex) {
+        return problem(HttpStatus.CONFLICT, "alert-rule-limit", "Conflict", ex.getMessage());
     }
 
     @ExceptionHandler(DataIntegrityViolationException.class)

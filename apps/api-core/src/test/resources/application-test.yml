@@ -7,6 +7,22 @@ pulseboard:
   internal:
     # Random per test JVM (64 hex characters); tests read it back through the environment property.
     shared-secret: ${random.value}${random.value}
+  alert:
+    dispatcher:
+      # Tests drive the dispatcher themselves unless a test class turns the poller on.
+      enabled: false
+      poll-interval: 200ms
+      lease: 30s
+      delivery-timeout: 10s
+      backoff: 1s,1s,1s
+    webhook:
+      # Random per test JVM; tests read it back through the environment property.
+      signing-secret: ${random.value}${random.value}
+      # WireMock listens on plain http on the loopback address; the safety check allows this for the test profile.
+      allow-http: true
+      allow-private-targets: true
+      connect-timeout: 2s
+      read-timeout: 2s
   stream:
     # Short heartbeat so a test sees one within moments; the dedicated stream tests use their own limits.
     heartbeat-interval: 300ms

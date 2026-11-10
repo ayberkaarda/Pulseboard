@@ -131,6 +131,13 @@ public class SecurityConfiguration {
                         // filter acts on the stream route alone.
                         .requestMatchers("/api/v1/stream/anomalies")
                         .hasAnyRole(OWNER, ADMIN, VIEWER, StreamTicketAuthenticationFilter.ROLE)
+                        // Alert rules: any user reads, only OWNER and ADMIN change (every other verb, HEAD included).
+                        // API keys get neither.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/alert-rules", "/api/v1/alert-rules/*")
+                        .hasAnyRole(OWNER, ADMIN, VIEWER)
+                        .requestMatchers("/api/v1/alert-rules", "/api/v1/alert-rules/**").hasAnyRole(OWNER, ADMIN)
+                        .requestMatchers("/api/v1/alert-events", "/api/v1/alert-events/**")
+                        .hasAnyRole(OWNER, ADMIN, VIEWER)
                         .requestMatchers("/api/v1/anomalies", "/api/v1/anomalies/**", "/api/v1/stream/**")
                         .hasAnyRole(OWNER, ADMIN, VIEWER)
                         .anyRequest().authenticated())

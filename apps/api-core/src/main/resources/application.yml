@@ -143,6 +143,51 @@ pulseboard:
     shared-secret: ${INTERNAL_SHARED_SECRET:}
     # Bodies larger than this are rejected before they are hashed. 500 notifications are about 200 KB.
     max-body-bytes: ${INTERNAL_MAX_BODY_BYTES:524288}
+  alert:
+    # Alert rules a tenant may own.
+    max-rules-per-tenant: ${ALERT_MAX_RULES_PER_TENANT:50}
+    # Rules of one metric, and rules over a whole ingestion batch, that are evaluated per batch (bounded work).
+    max-rules-per-metric: ${ALERT_MAX_RULES_PER_METRIC:20}
+    max-rules-per-batch: ${ALERT_MAX_RULES_PER_BATCH:200}
+    # Enabled rules of a metric are reused between batches for this long; a change on another instance is seen
+    # after at most this time.
+    rule-cache-ttl: ${ALERT_RULE_CACHE_TTL:5s}
+    # Points outside this window around now never raise a threshold alert (back-filled history is not news).
+    max-point-age: ${ALERT_MAX_POINT_AGE:1h}
+    max-point-future: ${ALERT_MAX_POINT_FUTURE:5m}
+    # Alert events one tenant may create; over the budget events are dropped and counted.
+    events-per-period: ${ALERT_EVENTS_PER_PERIOD:600}
+    events-period: ${ALERT_EVENTS_PERIOD:1h}
+    dispatcher:
+      # Polling delivery of pending events; every instance may run it, claims never overlap.
+      enabled: ${ALERT_DISPATCHER_ENABLED:true}
+      poll-interval: ${ALERT_DISPATCH_INTERVAL:5s}
+      batch-size: ${ALERT_DISPATCH_BATCH_SIZE:10}
+      # Deliveries running at the same time.
+      concurrency: ${ALERT_DISPATCH_CONCURRENCY:4}
+      # A claim that is not finished within the lease is taken over (crash recovery); longer than delivery-timeout.
+      lease: ${ALERT_DISPATCH_LEASE:60s}
+      # Attempts per event, the first included: the first try plus 3 retries.
+      max-attempts: ${ALERT_DISPATCH_MAX_ATTEMPTS:4}
+      # Wait before attempt 2, 3, 4.
+      backoff: ${ALERT_DISPATCH_BACKOFF:10s,60s,300s}
+      # After this many consecutive failures to one host its deliveries pause, so a dead receiver cannot hold the
+      # dispatcher.
+      host-failure-threshold: ${ALERT_HOST_FAILURE_THRESHOLD:5}
+      host-pause: ${ALERT_HOST_PAUSE:60s}
+      # Hard limit for one delivery, DNS lookup included.
+      delivery-timeout: ${ALERT_DELIVERY_TIMEOUT:20s}
+    webhook:
+      # HMAC-SHA256 key for X-Pulseboard-Signature. Empty switches the WEBHOOK channel off; otherwise at least 32
+      # characters. Never defaulted, never logged.
+      signing-secret: ${ALERT_WEBHOOK_SIGNING_SECRET:}
+      # Both switches weaken the protection against server-side request forgery; they are refused at startup
+      # unless the test or local profile is active.
+      allow-http: ${ALERT_WEBHOOK_ALLOW_HTTP:false}
+      allow-private-targets: ${ALERT_WEBHOOK_ALLOW_PRIVATE_TARGETS:false}
+      allowed-ports: ${ALERT_WEBHOOK_ALLOWED_PORTS:443}
+      connect-timeout: ${ALERT_WEBHOOK_CONNECT_TIMEOUT:5s}
+      read-timeout: ${ALERT_WEBHOOK_READ_TIMEOUT:5s}
   stream:
     # Live anomaly streams (server-sent events): concurrent connections per tenant and per instance.
     max-per-tenant: ${ANOMALY_STREAM_MAX_PER_TENANT:10}

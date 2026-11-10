@@ -66,7 +66,7 @@ class OpenApiContractTest extends IntegrationTest {
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody()
-                .jsonPath("$.info.version").isEqualTo("0.6.0")
+                .jsonPath("$.info.version").isEqualTo("0.7.0")
                 .jsonPath("$.paths['/api/v1/anomalies'].get.security[0].bearerAuth").exists()
                 .jsonPath("$.paths['/api/v1/anomalies'].get.parameters[?(@.name=='size')].schema.maximum")
                 .isEqualTo(100)
