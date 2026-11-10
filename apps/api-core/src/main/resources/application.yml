@@ -148,6 +148,12 @@ pulseboard:
     heartbeat-interval: ${ANOMALY_STREAM_HEARTBEAT:30s}
     # A stream is closed after this long (or earlier, when its access token expires); clients reconnect.
     max-lifetime: ${ANOMALY_STREAM_MAX_LIFETIME:30m}
+    ticket:
+      # One-time ticket that lets a browser EventSource (no Authorization header) open the stream.
+      ttl: ${STREAM_TICKET_TTL:30s}
+      # Tickets one user may request: 30 per minute.
+      issue-capacity: ${STREAM_TICKET_ISSUE_CAPACITY:30}
+      issue-period: ${STREAM_TICKET_ISSUE_PERIOD:1m}
 
 ---
 spring:
