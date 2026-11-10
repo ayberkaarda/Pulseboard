@@ -33,8 +33,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         configure_logging()
         runtime = Runtime.build(settings if settings is not None else Settings.from_env())
         app.state.runtime = runtime
-        runtime.start()
         try:
+            runtime.verify_roles()
+            runtime.start()
             yield
         finally:
             runtime.stop()

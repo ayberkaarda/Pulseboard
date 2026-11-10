@@ -11,6 +11,7 @@ from pulseboard_analytics.clients.api_core import ApiCoreClient
 from pulseboard_analytics.jobs.score_all import RunSummary, score_all_metrics, start_scheduler
 from pulseboard_analytics.jobs.scoring import MetricScorer
 from pulseboard_analytics.repositories.engines import make_engine
+from pulseboard_analytics.repositories.privileges import verify_database_roles
 from pulseboard_analytics.repositories.reader import MetricReader
 from pulseboard_analytics.repositories.writer import AnomalyWriter, DetectorStateStore
 from pulseboard_analytics.settings import Settings
@@ -48,6 +49,7 @@ class Runtime:
                 reader=reader,
                 anomalies=AnomalyWriter(writer_engine),
                 states=DetectorStateStore(writer_engine),
+                max_forests=settings.forest_cache_max,
             ),
         )
 
@@ -59,7 +61,13 @@ class Runtime:
             notifier=self.notifier,
             redis=self.redis,
             lock_ttl_ms=self.settings.lock_ttl_ms,
+            deadline_seconds=self.settings.score_deadline_seconds,
         )
+
+    def verify_roles(self) -> None:
+        """Refuse to run with database roles that are broader or narrower than intended."""
+        if self.settings.verify_db_roles:
+            verify_database_roles(self.reader_engine, self.writer_engine)
 
     def start(self) -> None:
         """Start the scheduler when enabled."""
