@@ -17,6 +17,7 @@ def test_health_needs_no_external_service() -> None:
         api_core_base_url="http://127.0.0.1:9",
         internal_shared_secret="h" * 40,
         scheduler_enabled=False,
+        verify_db_roles=False,
     )
 
     with TestClient(create_app(settings)) as client:
