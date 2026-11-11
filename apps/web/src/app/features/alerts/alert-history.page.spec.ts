@@ -1,11 +1,13 @@
 import { provideHttpClient, withInterceptors } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
-import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
-import { render, screen, waitFor, within } from '@testing-library/angular';
+import { ActivatedRoute, Router, convertToParamMap, provideRouter } from '@angular/router';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/angular';
 import userEvent from '@testing-library/user-event';
 
 import { errorInterceptor } from '../../core/http/interceptors';
+import { StubPage } from '../../core/testing/auth-testing';
+import { SessionLifecycle } from '../../core/session/session-lifecycle';
 import { SessionStore } from '../../core/session/session.store';
 import { fakeSession } from '../anomalies/anomaly-testing';
 import { AlertEvent } from './alert-models';
@@ -30,7 +32,7 @@ async function renderPage(query: Record<string, string> = {}, userOptions = {}) 
     providers: [
       provideHttpClient(withInterceptors([errorInterceptor])),
       provideHttpClientTesting(),
-      provideRouter([]),
+      provideRouter([{ path: 'login', component: StubPage }]),
       {
         provide: ActivatedRoute,
         useValue: { snapshot: { queryParamMap: convertToParamMap(query) } },
@@ -264,6 +266,32 @@ describe('AlertHistoryPage', () => {
       });
       await user.click(within(dialog).getByRole('button', { name: 'Copy payload' }));
       expect(await within(dialog).findByText(/Copying is not available/)).toBeInTheDocument();
+    });
+
+    it('closes the dialog and drops its payload when the session is cleared, also on the way to the login', async () => {
+      const { dialog } = await openDetails();
+      expect(within(dialog).getByText(/long/)).toBeInTheDocument();
+
+      TestBed.inject(SessionLifecycle).clear();
+      await TestBed.inject(Router).navigateByUrl('/login');
+
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+      expect(document.querySelector('.cdk-overlay-container')?.textContent ?? '').not.toContain(
+        'xxxxxxxx',
+      );
+      expect(screen.queryByText(/Alert event/)).not.toBeInTheDocument();
+    });
+
+    it('does not open a dialog whose lazy import finished after the session was cleared', async () => {
+      const env = await renderPage();
+      await open(env.http, [rawEvent({ payload: XSS_PAYLOAD })]);
+      const button = await screen.findByRole('button', { name: /^Details of/ });
+
+      fireEvent.click(button);
+      TestBed.inject(SessionLifecycle).clear();
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     });
 
     it('returns focus to the row button when the dialog closes', async () => {

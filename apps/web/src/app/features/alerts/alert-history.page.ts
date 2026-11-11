@@ -14,6 +14,7 @@ import { absoluteTime, relativeTime } from '../../shared/format/format-time';
 import { LoadErrorComponent } from '../../shared/load-state/load-error.component';
 import { SkeletonRowsComponent } from '../../shared/load-state/skeleton-rows.component';
 import { DeliveryGlyphComponent } from '../../shared/signal/delivery-glyph.component';
+import { OverlaySession } from '../../shared/overlay/overlay-session';
 import { EmptyStateComponent } from '../../shell/empty-state/empty-state.component';
 import { AlertEvent, DELIVERY_LABELS, DeliveryStatus } from './alert-models';
 import { AlertHistoryStore, shouldAutoRefresh } from './alert-history.store';
@@ -48,6 +49,7 @@ export class AlertHistoryPage {
   protected readonly rules = inject(AlertRulesStore);
   private readonly clock = inject(Clock);
   private readonly injector = inject(Injector);
+  private readonly overlays = inject(OverlaySession);
 
   protected readonly pageLabel = computed(() => {
     const pages = Math.max(this.history.totalPages(), 1);
@@ -113,11 +115,18 @@ export class AlertHistoryPage {
 
   /** The dialog and Material's overlay load when a row is opened. */
   protected async open(event: AlertEvent): Promise<void> {
+    const token = this.overlays.token();
     const [{ MatDialog }, { AlertEventDetailDialog }] = await Promise.all([
       import('@angular/material/dialog'),
       import('./alert-event-detail.dialog'),
     ]);
-    this.injector.get(MatDialog).open(AlertEventDetailDialog, {
+    if (!this.overlays.isCurrent(token)) {
+      // The session ended while the dialog was loading: its data belongs to somebody else now.
+      return;
+    }
+    const dialogs = this.injector.get(MatDialog);
+    this.overlays.track(dialogs);
+    dialogs.open(AlertEventDetailDialog, {
       data: event,
       width: '680px',
       maxWidth: 'calc(100vw - 32px)',
