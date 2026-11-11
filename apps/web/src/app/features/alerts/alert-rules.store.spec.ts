@@ -8,7 +8,7 @@ import { SessionStore } from '../../core/session/session.store';
 import { settle } from '../../core/testing/auth-testing';
 import { fakeSession } from '../anomalies/anomaly-testing';
 import { AlertRule } from './alert-models';
-import { AlertRulesStore } from './alert-rules.store';
+import { AlertRulesStore, MEMORY_LIMIT } from './alert-rules.store';
 import { METRIC_ID, rawRule, ruleProblem } from './alert-testing';
 
 function setup(role: string | null = 'OWNER') {
@@ -282,6 +282,65 @@ describe('AlertRulesStore stale responses', () => {
     http.expectOne(LIST).flush([{ ...rule, enabled: false, version: 2 }]);
     expect(store.rules()[0]).toMatchObject({ enabled: false, version: 2 });
     expect(store.status()).toBe('loaded');
+  });
+
+  it('keeps a deleted row gone when an older list answer arrives before the delete is answered', async () => {
+    const rule = rawRule();
+    const other = rawRule();
+    const { store, http } = await loaded([rule, other]);
+
+    store.load();
+    const staleList = http.expectOne(LIST);
+    const removal = store.remove(rule);
+    const del = http.expectOne(one(rule));
+    expect(store.rules()).toEqual([other]);
+
+    // The list was read before the delete and still has the row.
+    staleList.flush([rule, other]);
+    expect(store.rules()).toEqual([other]);
+
+    del.flush(null, { status: 204, statusText: 'No Content' });
+    await removal;
+    expect(store.rules()).toEqual([other]);
+  });
+
+  it('shows a row again when its delete fails, even though it was remembered as gone', async () => {
+    const rule = rawRule();
+    const { store, http } = await loaded([rule]);
+    const removal = store.remove(rule);
+    http.expectOne(one(rule)).flush(...ruleProblem('server-error', 500));
+    await removal;
+    expect(store.rules()).toEqual([rule]);
+
+    store.load();
+    http.expectOne(LIST).flush([rule]);
+    expect(store.rules()).toEqual([rule]);
+  });
+
+  it('forgets the oldest deleted ids so the memory stays bounded', async () => {
+    const rules = Array.from({ length: MEMORY_LIMIT + 2 }, () => rawRule());
+    const { store, http } = await loaded(rules);
+    for (const rule of rules) {
+      const removal = store.remove(rule);
+      http.expectOne(one(rule)).flush(null, { status: 204, statusText: 'No Content' });
+      await removal;
+    }
+    store.load();
+    // The first two were forgotten; the rest are still filtered out.
+    http.expectOne(LIST).flush(rules);
+    expect(store.rules().map((rule) => rule.id)).toEqual([rules[0].id, rules[1].id]);
+  });
+
+  it('does not let an older version in a list answer replace a version the server confirmed', async () => {
+    const rule = rawRule({ enabled: true, version: 1 });
+    const { store, http } = await loaded([rule]);
+    const done = store.toggle(rule, false);
+    http.expectOne(one(rule)).flush({ ...rule, enabled: false, version: 2 });
+    await done;
+
+    store.load();
+    http.expectOne(LIST).flush([rule]);
+    expect(store.rules()[0]).toMatchObject({ enabled: false, version: 2 });
   });
 
   it('drops a list that arrives after logout', () => {

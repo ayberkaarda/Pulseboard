@@ -21,6 +21,22 @@ import {
   describeRuleProblem,
 } from './alert-models';
 
+/** How many deleted ids and confirmed versions are remembered; the oldest are forgotten first. */
+export const MEMORY_LIMIT = 100;
+
+/** Adds to a bounded, insertion ordered map. */
+function remember<V>(memory: Map<string, V>, key: string, value: V): void {
+  memory.delete(key);
+  memory.set(key, value);
+  while (memory.size > MEMORY_LIMIT) {
+    const oldest = memory.keys().next();
+    if (oldest.done) {
+      return;
+    }
+    memory.delete(oldest.value);
+  }
+}
+
 export type RulesStatus = 'idle' | 'loading' | 'loaded' | 'error';
 
 /** A message about the last change attempt. `changed` offers the reload action. */
@@ -78,6 +94,8 @@ function isOutOfDate(problem: ApiProblem): boolean {
  *   with a reload action.
  * - A list response that was requested before a change finished is dropped and requested again, and
  *   responses that arrive after logout are ignored (epoch).
+ * - Deleted rules are remembered (a bounded set), and so is the newest version the server confirmed
+ *   for a rule, so an older list answer arriving later cannot bring a deleted row or an old version back.
  */
 export const AlertRulesStore = signalStore(
   { providedIn: 'root' },
@@ -95,7 +113,19 @@ export const AlertRulesStore = signalStore(
     let epoch = 0;
     // Bumped whenever a change finishes: a list requested earlier may not contain it.
     let changes = 0;
+    // Rules that are deleted or being deleted, and the newest version the server confirmed per rule.
+    const gone = new Map<string, true>();
+    const confirmed = new Map<string, AlertRule>();
     const loads = new Subject<void>();
+
+    /** A list answer without what is known to be newer than it. */
+    const reconcile = (list: readonly AlertRule[]): readonly AlertRule[] =>
+      list
+        .filter((rule) => !gone.has(rule.id))
+        .map((rule) => {
+          const known = confirmed.get(rule.id);
+          return known !== undefined && known.version > rule.version ? known : rule;
+        });
 
     const setPending = (id: string, on: boolean): void =>
       patchState(store, (state) => ({
@@ -134,7 +164,12 @@ export const AlertRulesStore = signalStore(
           patchState(store, { status: 'error', problem: result.problem });
           return;
         }
-        patchState(store, { status: 'loaded', rules: result.rules, problem: null, notice: null });
+        patchState(store, {
+          status: 'loaded',
+          rules: reconcile(result.rules),
+          problem: null,
+          notice: null,
+        });
       });
 
     const fail = (error: unknown, action: 'save' | 'toggle' | 'delete'): void => {
@@ -186,6 +221,7 @@ export const AlertRulesStore = signalStore(
           );
           if (startedIn === epoch) {
             changes += 1;
+            remember(confirmed, saved.id, saved);
             replace(saved);
           }
           return true;
@@ -210,6 +246,7 @@ export const AlertRulesStore = signalStore(
         const startedIn = epoch;
         const index = store.rules().findIndex((entry) => entry.id === rule.id);
         setPending(rule.id, true);
+        remember(gone, rule.id, true);
         patchState(store, (state) => ({
           notice: null,
           rules: state.rules.filter((entry) => entry.id !== rule.id),
@@ -234,6 +271,7 @@ export const AlertRulesStore = signalStore(
             changes += 1;
             return true;
           }
+          gone.delete(rule.id);
           patchState(store, (state) => {
             if (state.rules.some((entry) => entry.id === rule.id)) {
               return {};
@@ -259,6 +297,8 @@ export const AlertRulesStore = signalStore(
           );
           if (startedIn === epoch) {
             changes += 1;
+            gone.delete(rule.id);
+            remember(confirmed, rule.id, rule);
             patchState(store, (state) => ({
               rules: [...state.rules.filter((entry) => entry.id !== rule.id), rule],
             }));
@@ -282,6 +322,7 @@ export const AlertRulesStore = signalStore(
           );
           if (startedIn === epoch) {
             changes += 1;
+            remember(confirmed, rule.id, rule);
             replace(rule);
           }
           return { ok: true, rule };
@@ -292,6 +333,8 @@ export const AlertRulesStore = signalStore(
 
       reset(): void {
         epoch += 1;
+        gone.clear();
+        confirmed.clear();
         patchState(store, INITIAL);
       },
     };
