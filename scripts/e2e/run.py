@@ -66,6 +66,7 @@ def write_env(path: Path, api_port: int) -> dict[str, str]:
         values[key] = secrets.token_hex(16)
     values["INTERNAL_SHARED_SECRET"] = secrets.token_hex(32)
     values["JWT_SECRET"] = secrets.token_hex(32)
+    values["ALERT_WEBHOOK_SIGNING_SECRET"] = secrets.token_hex(32)
     values["E2E_API_PORT"] = str(api_port)
     path.write_text("".join(f"{k}={v}\n" for k, v in values.items()), encoding="utf-8")
     return values
