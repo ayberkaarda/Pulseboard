@@ -132,19 +132,51 @@ class ApacheWebhookSenderTest {
     }
 
     @Test
-    void theResponseBodyIsNotReadSoAHugeOneCostsNothing() throws Exception {
-        String path = path();
-        byte[] huge = new byte[32 * 1024 * 1024];
-        java.util.Arrays.fill(huge, (byte) 'x');
-        WebhookReceiver.server().stubFor(post(urlEqualTo(path)).willReturn(aResponse().withStatus(500)
-                .withBody(huge)));
-        long started = System.nanoTime();
+    void theResponseBodyIsNotReadSoAnEndlessOneCostsNothing() throws Exception {
+        // A receiver that answers at once and then drips a body of a billion bytes, one byte at a time: reading it
+        // would never end, and no single read would ever time out.
+        try (java.net.ServerSocket server = new java.net.ServerSocket(0, 1, InetAddress.getLoopbackAddress())) {
+            int port = server.getLocalPort();
+            Thread receiver = new Thread(() -> drip(server), "test-dripping-receiver");
+            receiver.setDaemon(true);
+            receiver.start();
+            URI uri = URI.create("http://localhost:" + port + "/drip");
+            ResolvedWebhookTarget target = new ResolvedWebhookTarget(new WebhookTarget(uri, "localhost", port),
+                    List.of(InetAddress.getByAddress("localhost", new byte[] {127, 0, 0, 1})));
+            ApacheWebhookSender sender = new ApacheWebhookSender(new WebhookPolicy("k".repeat(32), true, true,
+                    Set.of(port), Duration.ofSeconds(5), Duration.ofSeconds(5)));
+            long started = System.nanoTime();
 
-        int status = sender(Duration.ofSeconds(2), Duration.ofSeconds(2))
-                .post(target("localhost", path), Map.of(), "{}".getBytes(StandardCharsets.UTF_8));
+            int status = sender.post(target, Map.of(), "{}".getBytes(StandardCharsets.UTF_8));
 
-        assertThat(status).isEqualTo(500);
-        assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofSeconds(5));
+            assertThat(status).isEqualTo(500);
+            assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofSeconds(4));
+        }
+    }
+
+    private static void drip(java.net.ServerSocket server) {
+        try (java.net.Socket socket = server.accept()) {
+            java.io.InputStream in = socket.getInputStream();
+            int matched = 0;
+            while (matched < 4) {
+                int b = in.read();
+                if (b < 0) {
+                    return;
+                }
+                matched = b == (matched % 2 == 0 ? '\r' : '\n') ? matched + 1 : (b == '\r' ? 1 : 0);
+            }
+            java.io.OutputStream out = socket.getOutputStream();
+            out.write("HTTP/1.1 500 Internal Server Error\r\nContent-Length: 1000000000\r\n\r\n"
+                    .getBytes(StandardCharsets.US_ASCII));
+            out.flush();
+            while (true) {
+                out.write('x');
+                out.flush();
+                Thread.sleep(50);
+            }
+        } catch (java.io.IOException | InterruptedException ex) {
+            // the sender closed the connection, which is the point
+        }
     }
 
     @Test
