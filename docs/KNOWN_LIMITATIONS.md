@@ -26,3 +26,7 @@ Short list of behaviours that are deliberate or accepted for now.
 - **Alert events are never cleaned up.** There is no retention job; `alert_event` rows stay until their rule is deleted.
 - **Evaluation after commit can be lost.** Threshold and anomaly rules are evaluated after the data is committed. If the instance crashes between the commit and the creation of the event, that alert is never raised. Only the delivery is an outbox.
 - **No live alert events and no test event.** The dashboard learns of new alert events through its refresh (history page polls every 30 s while an event is pending); there is no SSE event, and there is no endpoint that sends a test event to a webhook.
+- **No data retention.** Nothing deletes old `metric_point` partitions, anomalies or alert events. The monthly partitioning makes dropping old months cheap, but no job does it (see [ADR/0002-postgres-partitioning.md](ADR/0002-postgres-partitioning.md)).
+- **Plain HTTP only.** The Compose stack publishes the web container on HTTP and sends no HSTS header; traffic between containers, including PostgreSQL and Redis, is not encrypted. A real deployment needs TLS termination in front of `web`.
+- **Access tokens outlive logout.** Logout revokes the refresh-token family, but an access token that was already issued stays valid until it expires (15 minutes).
+- **Account management is minimal.** There is no password change, password recovery, MFA, account deletion or data export. The full assessment against OWASP ASVS Level 1 is in [SECURITY_CHECKLIST.md](SECURITY_CHECKLIST.md).
