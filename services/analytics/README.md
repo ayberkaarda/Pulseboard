@@ -78,6 +78,13 @@ Read from the environment by `settings.py`; invalid values stop the service at s
 | `DB_POOL_TIMEOUT_SECONDS`, `DB_CONNECT_TIMEOUT_SECONDS` | `5`, `5` | Wait for a free connection and for opening one |
 | `FOREST_CACHE_MAX` | `256` | Fitted forests kept in memory |
 | `VERIFY_DB_ROLES` | `true` | Startup check of the reader and writer privileges; `false` is for tests only |
+| `METRICS_ENABLED`, `METRICS_PORT` | `true`, `9100` | Prometheus listener on its own port (never the main application) |
+
+## Metrics
+
+The service serves Prometheus metrics (`pulseboard_analytics_*`: scoring runs and their duration, metrics scored and failed, anomalies inserted by severity, notify calls to api-core, model cache and trainings, database pool waits, lock acquisition) from a separate listener on `METRICS_PORT` (9100), which the main application never mounts. Labels are bounded sets (outcomes, detectors, severities); metric ids, tenant ids and paths are never labels. The default stack does not publish the port. The optional Prometheus and Grafana profile scrapes it; see [docs/LOAD_TEST.md](../../docs/LOAD_TEST.md).
+
+Alert rules for the anomalies this service writes are evaluated by api-core after it receives the `notify` call.
 
 ## Development
 
@@ -86,7 +93,7 @@ uv sync --locked
 uv run ruff check .
 uv run ruff format --check .
 uv run mypy .            # strict
-uv run pytest            # needs Docker for the PostgreSQL and Redis containers (326 tests at the time of writing)
+uv run pytest            # needs Docker for the PostgreSQL and Redis containers
 ```
 
 From the repository root, `make test-analytics` runs the tests and `make lint` includes ruff and mypy. The detectors are tested with synthetic series (injected spikes, level shifts, seasonal baselines), the repositories and the job against real PostgreSQL and Redis containers.

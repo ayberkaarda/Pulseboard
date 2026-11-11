@@ -78,6 +78,13 @@ OpenAPI belgesi [`contracts/analytics.openapi.yaml`](../../contracts/analytics.o
 | `DB_POOL_TIMEOUT_SECONDS`, `DB_CONNECT_TIMEOUT_SECONDS` | `5`, `5` | Boş bağlantı ve yeni bağlantı açma için bekleme süresi |
 | `FOREST_CACHE_MAX` | `256` | Bellekte tutulan eğitilmiş forest sayısı |
 | `VERIFY_DB_ROLES` | `true` | Reader ve writer yetkilerinin açılış denetimi; `false` yalnızca testler içindir |
+| `METRICS_ENABLED`, `METRICS_PORT` | `true`, `9100` | Kendi portunda Prometheus dinleyicisi (ana uygulamada asla yoktur) |
+
+## Metrikler
+
+Servis, Prometheus metriklerini (`pulseboard_analytics_*`: puanlama çalıştırmaları ve süreleri, puanlanan ve başarısız olan metrikler, önem derecesine göre eklenen anomaliler, api-core'a notify çağrıları, model önbelleği ve eğitimleri, veritabanı havuzu beklemeleri, kilit alma) `METRICS_PORT` (9100) üzerindeki ayrı bir dinleyiciden sunar; ana uygulama bu dinleyiciyi hiç bağlamaz. Etiketler sınırlı kümelerdir (sonuçlar, dedektörler, önem dereceleri); metrik kimlikleri, kiracı kimlikleri ve yollar asla etiket olmaz. Varsayılan ortam portu yayınlamaz. İsteğe bağlı Prometheus ve Grafana profili bunu toplar; bkz. [docs/LOAD_TEST.md](../../docs/LOAD_TEST.md) (İngilizce).
+
+Bu servisin yazdığı anomaliler için alarm kuralları, api-core `notify` çağrısını aldıktan sonra değerlendirilir.
 
 ## Geliştirme
 
@@ -86,7 +93,7 @@ uv sync --locked
 uv run ruff check .
 uv run ruff format --check .
 uv run mypy .            # strict
-uv run pytest            # PostgreSQL ve Redis konteynerleri için Docker gerekir (bu yazı hazırlanırken 326 test)
+uv run pytest            # PostgreSQL ve Redis konteynerleri için Docker gerekir
 ```
 
 Depo kök dizininden `make test-analytics` testleri çalıştırır, `make lint` ise ruff ve mypy'ı da içerir. Dedektörler sentetik serilerle (enjekte edilmiş sıçramalar, seviye kaymaları, mevsimsel referanslar), repository'ler ve iş ise gerçek PostgreSQL ve Redis konteynerleriyle test edilir.
