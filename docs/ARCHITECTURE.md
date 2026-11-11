@@ -1,6 +1,6 @@
 ﻿# Pulseboard Architecture
 
-> **Status.** Phases P0 to P4 are built. Alert rules, alert evaluation and notification dispatch (section 4.3 and the matching parts of the diagrams and the domain model) are the planned phase P5 and do not exist in the code yet. The tenant dashboard, service drill-down and live anomaly feed exist; the alert rule editor does not.
+> **Status.** Phases P0 to P5 are built. The tenant dashboard, service drill-down, live anomaly feed and the alert rule editor with the delivery history exist.
 
 ## 1. System Overview Mind Map
 
@@ -223,9 +223,60 @@ sequenceDiagram
 
 ### 4.3 Alerting
 
-- Alert evaluation is an application service in `api-core` triggered by ingestion for `THRESHOLD` rules and by internal anomaly notifications for `ANOMALY_SEVERITY` rules.
-- Cooldown is enforced via Redis key `alert:cooldown:{ruleId}` with a TTL.
-- `WEBHOOK` delivery uses HTTP POST with `RestClient`, a 5-second timeout, and three retries; the outcome is persisted on `AlertEvent`. `EMAIL_LOG` writes a structured log line; real SMTP is out of scope.
+1. **Threshold rules.** After an ingestion batch is committed, `api-core` evaluates the enabled `THRESHOLD` rules of the metrics in that batch (cached for 5 seconds; at most 20 rules per metric and 200 per batch). A rule fires at most once per batch, for the latest crossing point. Points older than one hour or more than five minutes ahead are ignored.
+2. **Anomaly rules.** When `analytics` calls `POST /internal/v1/anomalies/notify`, `api-core` re-reads the anomalies and evaluates the `ANOMALY_SEVERITY` rules of their metrics against the minimum severity.
+3. **Cooldown and budget.** A match first claims the Redis key `alert:cooldown:{ruleId}` with `SET NX PX` (the rule's `cooldown_seconds`), so a rule fires once per cooldown even across instances. A per-tenant budget (600 events per hour by default) caps the number of events. If Redis is unreachable nothing is created (fail closed).
+4. **Outbox.** The event is inserted into `alert_event` with `delivery_status = PENDING`, `next_attempt_at` and the payload. Creating the event and sending it are separate steps, so a slow receiver never delays ingestion.
+5. **Dispatcher.** Every `api-core` instance polls (5 s) for due `PENDING` rows with `FOR UPDATE SKIP LOCKED`, claims them with a lease (60 s; a claim that is not finished in time is taken over after a crash) and delivers up to 4 at a time. A failure schedules the next attempt after 10 s, 60 s and 300 s; after 4 attempts in total the event becomes `FAILED`, on success `SENT`. After 5 consecutive failures to one host and port, deliveries to it pause for 60 s (in memory, per instance).
+6. **Channels.** `WEBHOOK` sends the signed POST described below. `EMAIL_LOG` writes one structured log line; there is no SMTP.
+
+```mermaid
+sequenceDiagram
+    participant I as ingestion / notify
+    participant E as AlertEvaluator
+    participant R as Redis
+    participant DB as PostgreSQL
+    participant D as dispatcher
+    participant W as webhook receiver
+    I->>E: after commit: points or anomalies
+    E->>R: SET alert:cooldown:{ruleId} NX PX
+    E->>DB: INSERT alert_event (PENDING)
+    loop every 5 s, every instance
+        D->>DB: claim due rows (SKIP LOCKED, lease)
+        D->>D: resolve DNS, check every address, pin one
+        D->>W: POST https, signed (no redirects)
+        W-->>D: 2xx
+        D->>DB: SENT (else retry 10s / 60s / 300s, then FAILED)
+    end
+```
+
+#### Webhook delivery and SSRF protection
+
+- Only `https` URLs with a DNS name are accepted: no IP literal, no credentials, port 443 unless `ALERT_WEBHOOK_ALLOWED_PORTS` allows more. The check runs when a rule is saved and again before every delivery.
+- Every address the name resolves to must be public. The connection goes to the address that was checked (pinned DNS), so a changed DNS answer cannot redirect it. Redirects are refused and the response body is never read.
+- `ALERT_WEBHOOK_ALLOW_HTTP` and `ALERT_WEBHOOK_ALLOW_PRIVATE_TARGETS` exist for tests only. The application refuses to start with them outside the `test` and `local` profiles, and Compose does not pass them on.
+- `ALERT_WEBHOOK_SIGNING_SECRET` (at least 32 characters) is required by Compose and never logged.
+
+#### Receiver verification
+
+Each request carries `X-Pulseboard-Event-Id`, `X-Pulseboard-Timestamp` (Unix seconds) and `X-Pulseboard-Signature`, the lower-case hex HMAC-SHA256 of `timestamp + "." + raw body` keyed with the signing secret.
+
+1. Compute the HMAC over the raw bytes of the body, not over re-serialised JSON.
+2. Compare it with the header using a constant-time comparison.
+3. Reject timestamps that are too old (for example more than 5 minutes).
+4. Delivery is at least once: store the event id and ignore ones you have seen.
+
+```python
+import hashlib, hmac, time
+
+def verify(secret: str, headers: dict, body: bytes, tolerance: int = 300) -> bool:
+    timestamp = headers["X-Pulseboard-Timestamp"]
+    if abs(time.time() - int(timestamp)) > tolerance:
+        return False
+    signed = timestamp.encode() + b"." + body
+    expected = hmac.new(secret.encode(), signed, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, headers["X-Pulseboard-Signature"])
+```
 
 ### 4.4 Detector specifications
 
