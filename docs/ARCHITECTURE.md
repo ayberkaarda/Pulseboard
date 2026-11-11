@@ -1,6 +1,6 @@
-﻿# Pulseboard Architecture
+# Pulseboard Architecture
 
-> **Status.** Phases P0 to P5 are built. The tenant dashboard, service drill-down, live anomaly feed and the alert rule editor with the delivery history exist.
+> **Status.** Phases P0 to P6 are built. The tenant dashboard, service drill-down, live anomaly feed, the alert rule editor with the delivery history, the optional Prometheus and Grafana profile, the k6 load test, the security checklist and the decision records exist.
 
 ## 1. System Overview Mind Map
 
@@ -67,13 +67,19 @@ pulseboard/
 ├── infra/
 │   ├── docker-compose.yml
 │   ├── docker-compose.dev.yml
+│   ├── docker-compose.observability.yml   # optional Prometheus and Grafana profile
+│   ├── observability/
 │   └── postgres/init/
 ├── .github/workflows/
 │   ├── api-core.yml
 │   ├── analytics.yml
 │   └── web.yml
+├── scripts/                 # e2e check, compose settings check, k6 load test
 ├── docs/
 │   ├── ARCHITECTURE.md
+│   ├── KNOWN_LIMITATIONS.md
+│   ├── SECURITY_CHECKLIST.md
+│   ├── LOAD_TEST.md
 │   └── ADR/
 ├── Makefile
 └── README.md
@@ -348,3 +354,7 @@ Run from `apps/web` (CI runs them in this order in `.github/workflows/web.yml`, 
 - `npm run build`: production build.
 - `npx @lhci/cli autorun`: Lighthouse CI on `/login` and `/register` against the static build (`lighthouserc.json`, accessibility score at least 0.9, report in `.lighthouseci`). Needs Chrome.
 - `BASE=http://localhost:8081 node scripts/browser-audit.mjs`: axe browser audit of every page in light and dark. Needs the full running stack, so it is not part of CI.
+
+### 4.8 Observability and load test
+
+Prometheus and Grafana are an optional Compose profile (`make up-observability`, defined in `infra/docker-compose.observability.yml`). Prometheus is reachable only inside the Docker network and scrapes `api-core` on its management port (`/actuator/prometheus`) and `analytics` on its metrics listener (port 9100); Grafana is published on `127.0.0.1` only and loads the provisioned dashboard `Pulseboard overview`. `api-core` exposes custom counters for alerting (`pulseboard_alerts_*`); `analytics` exposes the `pulseboard_analytics_*` series. The k6 load test (`make loadtest`) and its measured results are described in [LOAD_TEST.md](LOAD_TEST.md).
