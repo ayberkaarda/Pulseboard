@@ -63,6 +63,18 @@ services:
       # Absolute session lifetime from login; must be at least the 7 day refresh token TTL.
       REFRESH_FAMILY_TTL: ${REFRESH_FAMILY_TTL:-30d}
       INTERNAL_MAX_BODY_BYTES: ${INTERNAL_MAX_BODY_BYTES:-524288}
+      # HMAC key for signed alert webhooks (X-Pulseboard-Signature), at least 32 characters.
+      ALERT_WEBHOOK_SIGNING_SECRET: ${ALERT_WEBHOOK_SIGNING_SECRET:?ALERT_WEBHOOK_SIGNING_SECRET must be non-empty (at least 32 characters)}
+      # Optional alerting settings (defaults shown, identical to application.yml).
+      ALERT_WEBHOOK_ALLOWED_PORTS: ${ALERT_WEBHOOK_ALLOWED_PORTS:-443}
+      ALERT_MAX_RULES_PER_TENANT: ${ALERT_MAX_RULES_PER_TENANT:-50}
+      ALERT_DISPATCHER_ENABLED: ${ALERT_DISPATCHER_ENABLED:-true}
+      ALERT_DISPATCH_INTERVAL: ${ALERT_DISPATCH_INTERVAL:-5s}
+      ALERT_DISPATCH_MAX_ATTEMPTS: ${ALERT_DISPATCH_MAX_ATTEMPTS:-4}
+      ALERT_EVENTS_PER_PERIOD: ${ALERT_EVENTS_PER_PERIOD:-600}
+      ALERT_EVENTS_PERIOD: ${ALERT_EVENTS_PERIOD:-1h}
+      # ALERT_WEBHOOK_ALLOW_HTTP and ALERT_WEBHOOK_ALLOW_PRIVATE_TARGETS are deliberately not passed through:
+      # api-core refuses to start with them outside the test and local profiles, and this stack must not set them.
     depends_on:
       postgres:
         condition: service_healthy
