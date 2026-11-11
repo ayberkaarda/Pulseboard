@@ -25,6 +25,11 @@
 - **SSE ile canlı akış.** Yeni anomaliler panoya Server-Sent Events ile iletilir. Tarayıcı, URL'de uzun ömürlü bir token taşımak yerine tek kullanımlık, kısa ömürlü bir bilet (ticket) ile bağlanır.
 - **Onaylama (acknowledge).** Anomaliler akıştan veya metrik sayfasından onaylanabilir; arayüz iyimser güncelleme yapar, hata olursa geri alır.
 - **Sağlık kutucukları.** Genel bakış, her servisi Healthy, Degraded, Down, Stale (veri eski, açık anomali yok) veya No data olarak gösterir. Durum asla yalnızca renkle anlatılmaz: her durumun kendi simgesi vardır.
+- **Alarm kuralları.** Sahipler (owner) ve yöneticiler (admin) metrik başına kural tanımlar: `THRESHOLD` (değer `GT`, `GTE`, `LT` veya `LTE` ile bir sınırı aşar) ya da `ANOMALY_SEVERITY` (bir anomali LOW, MEDIUM veya HIGH düzeyine ulaşır). Bekleme süresi (cooldown, 60 saniye ile 24 saat arası) kuralı tetiklendikten sonra susturur; kiracı başına bir bütçe (varsayılan olarak saatte 600 olay) hacmi sınırlar.
+- **Webhook ve günlük teslimi.** Kural `WEBHOOK` (imzalı HTTPS POST, yeniden denemeli) veya `EMAIL_LOG` (tek bir yapılandırılmış günlük satırı; SMTP yoktur) kanalıyla bildirir. Olaylar önce bir veritabanı outbox tablosuna yazılır, bu yüzden yavaş bir alıcı veri alımını geciktirmez; teslim en az bir kez (at least once) olur, yeniden denemeler 10 sn, 60 sn ve 300 sn sonra yapılır.
+- **Alarm geçmişi.** Her olay teslim durumu (pending, sent, failed), deneme sayısı, son hata ve içerik (payload) ile listelenir; kurala, duruma ve tarihe göre süzülebilir.
+- **SSRF'ye karşı sertleştirilmiş, imzalı webhook'lar.** Hedefler genel (public) `https` DNS adları olmalıdır; çözülen her adres denetlenir ve bağlantı bu adrese sabitlenir. Her istek, zaman damgası ve gövde üzerinde HMAC-SHA256 imzası taşır. Bkz. [Güvenlik özeti](#güvenlik-özeti).
+- **Gözlemlenebilirlik (isteğe bağlı).** İsteğe bağlı bir Compose profili Prometheus ve api-core, JVM, alarm sistemi ve analytics puanlama çalışmaları için hazır tanımlı bir Grafana panosu ekler. Bkz. [Gözlemlenebilirlik](#gözlemlenebilirlik-isteğe-bağlı).
 - **Güvenlik duruşu.** argon2id, yeniden kullanım tespitli refresh token rotasyonu, özetlenmiş (hash) API anahtarları, hız sınırları, HMAC imzalı dahili uç noktalar, en az yetkili veritabanı rolleri ve sıkı bir Content-Security-Policy. Bkz. [Güvenlik özeti](#güvenlik-özeti).
 - **Erişilebilir açık ve koyu tema** (sistem tercihini izler), telefondan masaüstüne duyarlı yerleşim ve her sayfa için axe-core denetimi.
 
@@ -42,18 +47,23 @@ flowchart LR
     AN -.->|"iş kilidi"| Redis
     API -->|"PUBLISH anomalies:tenantId"| Redis
     API -->|"SSE akışı"| Nginx
+    API -->|"imzalı HTTPS POST<br/>(yalnızca genel adresler)"| Hook["Webhook alıcıları"]
+    Prom["Prometheus + Grafana<br/>(isteğe bağlı profil)"] -.->|"scrape"| API
+    Prom -.->|"scrape"| AN
 ```
 
 1. Ajanlar metrik noktalarını nginx üzerinden **api-core**'a gönderir; api-core API anahtarını doğrular, kiracıya hız sınırı uygular ve aylık bölümlenmiş PostgreSQL tablosuna upsert eder.
 2. **analytics** servisi her 60 saniyede bir, her aktif metriğin son 24 saatini puanlar ve yeni anomalileri kısıtlı yetkili bir veritabanı rolüyle yazar.
 3. Ardından gerçekten eklenen satırları HMAC imzalı bir dahili çağrıyla api-core'a bildirir. api-core bu kayıtları veritabanından yeniden okur ve kiracıya özel bir Redis kanalına yayınlar.
 4. O kiracı için açık SSE akışı bulunan her api-core örneği olayı tarayıcıya iletir.
+5. Her veri alımı grubundan sonra ve her anomali bildiriminde api-core eşleşen alarm kurallarını değerlendirir. Tetiklenen kural (bekleme süresi ve kiracı bütçesinden sonra) `alert_event` outbox tablosunda `PENDING` bir satıra dönüşür.
+6. Her api-core örneğindeki bir dağıtıcı (dispatcher), zamanı gelen satırları `FOR UPDATE SKIP LOCKED` ile alır, webhook hedefini yeniden doğrular, imzalı isteği gönderir ve olayı `SENT` yapar, yeniden deneme planlar ya da `FAILED` yapar.
 
 Ayrıntılar, sıra diyagramları, alan modeli ve dedektör şartnameleri [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) dosyasındadır (İngilizce).
 
 ## Ekran görüntüleri
 
-Aşağıdaki görüntülerin tamamı, demo verisiyle çalışan Docker Compose ortamından alınmıştır.
+Aşağıdaki görüntülerin tamamı, demo verisiyle çalışan Docker Compose ortamından alınmıştır (webhook'lar yerel bir alıcıya gitti, bkz. [Alarmlar](#alarmlar)).
 
 ### Genel bakış
 
@@ -77,11 +87,45 @@ Aşağıdaki görüntülerin tamamı, demo verisiyle çalışan Docker Compose o
 |---|---|
 | ![Metrik grafiği, açık tema](docs/images/metric-light.png) | ![Metrik grafiği, koyu tema](docs/images/metric-dark.png) |
 
+### Alarm kuralları
+
+Her kural koşulunu, kanalını, bekleme süresini ve son tetiklenmesini gösterir; webhook hedefi yalnızca ana makine adıyla görünür. İzleyiciler (viewer) salt okunur liste görür.
+
+| Açık | Koyu |
+|---|---|
+| ![Alarm kuralları, açık tema](docs/images/alert-rules-light.png) | ![Alarm kuralları, koyu tema](docs/images/alert-rules-dark.png) |
+
+### Alarm kuralı düzenleyicisi
+
+Webhook adresi tarayıcıda yalnızca ipucu olarak denetlenir (https, IP adresi yok, iç ağ adı yok); asıl kararı sunucu verir.
+
+| Açık | Koyu |
+|---|---|
+| ![Alarm kuralı düzenleyicisi, açık tema](docs/images/alert-editor-light.png) | ![Alarm kuralı düzenleyicisi, koyu tema](docs/images/alert-editor-dark.png) |
+
+### Alarm geçmişi
+
+Teslim durumu simge ve yazıyla gösterilir. Ayrıntı penceresi içeriği (payload) ve son hatayı gösterir.
+
+| Açık | Koyu |
+|---|---|
+| ![Alarm geçmişi, açık tema](docs/images/alert-history-light.png) | ![Alarm geçmişi, koyu tema](docs/images/alert-history-dark.png) |
+
+| Olay ayrıntısı, açık | Olay ayrıntısı, koyu |
+|---|---|
+| ![Alarm olayı ayrıntısı, açık tema](docs/images/alert-event-light.png) | ![Alarm olayı ayrıntısı, koyu tema](docs/images/alert-event-dark.png) |
+
+### Grafana panosu (isteğe bağlı profil)
+
+| Açık | Koyu |
+|---|---|
+| ![Grafana panosu, açık tema](docs/images/grafana-light.png) | ![Grafana panosu, koyu tema](docs/images/grafana-dark.png) |
+
 ### Mobil
 
-| Genel bakış | Anomaliler | Metrik |
-|---|---|---|
-| <img src="docs/images/mobile-overview-light.png" alt="Mobil genel bakış, açık tema" width="260"> | <img src="docs/images/mobile-anomalies-dark.png" alt="Mobil anomaliler, koyu tema" width="260"> | <img src="docs/images/mobile-metric-light.png" alt="Mobil metrik, açık tema" width="260"> |
+| Genel bakış | Anomaliler | Metrik | Alarm geçmişi |
+|---|---|---|---|
+| <img src="docs/images/mobile-overview-light.png" alt="Mobil genel bakış, açık tema" width="200"> | <img src="docs/images/mobile-anomalies-dark.png" alt="Mobil anomaliler, koyu tema" width="200"> | <img src="docs/images/mobile-metric-light.png" alt="Mobil metrik, açık tema" width="200"> | <img src="docs/images/mobile-alerts-light.png" alt="Mobil alarm geçmişi, açık tema" width="200"> |
 
 ### Giriş
 
@@ -97,7 +141,8 @@ Aşağıdaki görüntülerin tamamı, demo verisiyle çalışan Docker Compose o
 | analytics | [`services/analytics`](services/analytics) | Python 3.14, FastAPI, SQLAlchemy 2, APScheduler, NumPy, pandas, scikit-learn, uv |
 | web | [`apps/web`](apps/web) | Angular 22 (standalone, signals, zoneless), ECharts, Angular Material, nginx |
 | contracts | [`contracts`](contracts) | Her iki servis için OpenAPI 3.1, olaylar için JSON Schema |
-| infra | [`infra`](infra) | Docker Compose, PostgreSQL 18, Redis 8 |
+| yük testi | [`scripts/loadtest`](scripts/loadtest) | `grafana/k6` imajından çalışan k6 betiği |
+| infra | [`infra`](infra) | Docker Compose, PostgreSQL 18, Redis 8; isteğe bağlı Prometheus 3 ve Grafana 12 profili |
 | CI | [`.github/workflows`](.github/workflows) | GitHub Actions: bileşen başına bir iş akışı ve gece çalışan bir uçtan uca (e2e) akış |
 
 ## Hızlı başlangıç
@@ -112,7 +157,7 @@ Pulseboard yerel çalışan bir portföy projesidir ve yalnızca Docker Compose 
 cp .env.example .env              # Windows PowerShell: Copy-Item .env.example .env
 ```
 
-Her gizli değeri `openssl rand -hex 24` ile üretin (`INTERNAL_SHARED_SECRET` ve `JWT_SECRET` için `openssl rand -hex 32`). OpenSSL yoksa, örneğin Windows'ta:
+Her gizli değeri `openssl rand -hex 24` ile üretin (`INTERNAL_SHARED_SECRET`, `JWT_SECRET` ve `ALERT_WEBHOOK_SIGNING_SECRET` için `openssl rand -hex 32`). OpenSSL yoksa, örneğin Windows'ta:
 
 ```sh
 py -c "import secrets; print(secrets.token_hex(32))"      # Linux/macOS: python3 -c ...
@@ -170,6 +215,26 @@ Sonraki girişlerde `POST /api/v1/auth/login` çağrısı `email`, `password` ve
 
 Dedektörlerin bir şey işaretleyebilmesi için geçmiş veri gerekir (z-skoru en az 31, Isolation Forest en az 60 nokta) ve zamanlayıcı dakikada bir çalışır. Gerçek anomaliler görmek için birkaç yüz noktalık, içinde ani sıçrama bulunan bir seri gönderin; [scripts/e2e/run.py](scripts/e2e/run.py) tam bir örnek içerir (100 civarında 300 nokta ve kısa bir sıçrama).
 
+### Alarmlar
+
+Alarm kuralları uygulamada "Alerts" bölümünden yönetilir (owner ve admin oluşturur; diğer roller okuyabilir) ya da sözleşmedeki `/api/v1/alert-rules` uç noktalarıyla. Bir kural için metrik, koşul ve kanal gerekir. `EMAIL_LOG` hazır çalışır ve alarmı api-core günlüğüne yazar (`docker compose logs api-core`).
+
+`WEBHOOK` kuralı için DNS adı olan genel bir `https` adresi gerekir. Kendi makinenizdeki bir alıcıya ya da bir Compose servisine varsayılan ayarlarla ulaşılamaz; bu, SSRF korumasının amaçlandığı gibi çalışmasıdır, bu yüzden denemeyi genel bir HTTPS uç noktasına karşı yapın. Alıcılar teslimi `X-Pulseboard-Event-Id`, `X-Pulseboard-Timestamp` ve `X-Pulseboard-Signature` başlıklarıyla doğrular (`timestamp + "." + ham gövde` üzerinde, `ALERT_WEBHOOK_SIGNING_SECRET` anahtarlı küçük harfli onaltılık HMAC-SHA256); tarif [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#receiver-verification) dosyasındadır (İngilizce).
+
+`ALERT_WEBHOOK_ALLOW_HTTP` ve `ALERT_WEBHOOK_ALLOW_PRIVATE_TARGETS` değişkenlerini ayarlamayın. Yalnızca testler ve yerel geliştirme içindir, api-core bunlarla `test` ve `local` profilleri dışında başlamayı reddeder ve Compose bunları iletmez. Bu README'deki ekran görüntüleri, bu değişkenleri yerel bir alıcı için açan, depo dışındaki geçici bir override dosyasıyla alınmıştır.
+
+### Gözlemlenebilirlik (isteğe bağlı)
+
+```sh
+# .env dosyasında ayrıca GRAFANA_ADMIN_PASSWORD gerekir (zorunlu; örneğin openssl rand -hex 16)
+make up-observability
+# make olmadan:
+docker compose --env-file .env -f infra/docker-compose.yml -f infra/docker-compose.observability.yml --profile observability up -d --build --wait
+make down-observability       # tüm projeyi durdurur, birimler (volume) korunur
+```
+
+Bu, Prometheus'u (yayınlanan port yok; api-core'u yönetim portundan, analytics'i 9100 portundan toplar) ve <http://127.0.0.1:3000> adresinde Grafana'yı ekler (`GRAFANA_PORT`, yalnızca loopback; kullanıcı `GRAFANA_ADMIN_USER`, varsayılan `admin`). "Pulseboard overview" panosu hazır tanımlıdır. Ayrıntılar ve k6 yük testi (`make loadtest`, ölçülmüş sonuçlarla) [docs/LOAD_TEST.md](docs/LOAD_TEST.md) dosyasındadır (İngilizce).
+
 ### Uçtan uca kontrol
 
 `make e2e`, kendi gizli değerleriyle geçici bir Compose projesi (`pulseboard-e2e`) başlatır, sıçramalı gürültülü bir seri gönderir, zamanlayıcıyı bekler ve anomaliyi REST ve SSE üzerinden, kiracı yalıtımını ve dahili HMAC davranışını doğrular. Normal ortamınıza ya da `.env` dosyanıza dokunmaz ve oluşturduğu her şeyi sonunda siler.
@@ -183,7 +248,7 @@ make e2e
 
 ## Test ve kalite kapıları
 
-Her bileşenin yüzlerce otomatik testi vardır (bu yazı hazırlanırken: api-core 374, analytics 326, web 374).
+Her bileşenin yüzlerce otomatik testi vardır; api-core ayrıca alarm kurallarını, değerlendirmeyi, outbox teslimini ve webhook hedef denetimlerini kapsar.
 
 | Bileşen | Komut (depo kök dizininden) | Notlar |
 |---|---|---|
@@ -194,7 +259,8 @@ Her bileşenin yüzlerce otomatik testi vardır (bu yazı hazırlanırken: api-c
 | web | `cd apps/web && npm run api:check && npm run lint && npm run format:check && npm run typecheck && npm test && npm run build` | Jest; `api:check`, üretilen API tiplerini sözleşmeyle karşılaştırır |
 | web (tarayıcı) | `cd apps/web && BASE=http://localhost:8081 node scripts/browser-audit.mjs` | Çalışan ortamda her sayfanın iki temada axe-core taraması; Chrome gerekir, CI'da çalışmaz |
 | contracts | `make openapi-gen` | İki OpenAPI belgesini yeniden üretir; sapma olursa CI başarısız olur |
-| compose | `make check-compose` | Compose'un ayarlanabilir değerleri servislere ilettiğini doğrular |
+| compose | `make check-compose` | Compose'un ayarlanabilir değerleri servislere ilettiğini, güvensiz webhook anahtarlarının iletilmediğini ve gözlemlenebilirlik profilinin isteğe bağlı olduğunu doğrular |
+| yük | `make loadtest` | Çalışan ortama karşı k6 veri alımı ve okuma senaryoları; bkz. [docs/LOAD_TEST.md](docs/LOAD_TEST.md) |
 
 GNU Make olmayan Windows'ta "Komut" sütunundaki komutları doğrudan çalıştırın.
 
@@ -207,9 +273,13 @@ GNU Make olmayan Windows'ta "Komut" sütunundaki komutları doğrudan çalışt�
 - **Dahili uç noktalar:** `X-Internal-Signature` (ham gövde üzerinde HMAC-SHA256, sabit zamanlı karşılaştırma, hash'ten önce gövde boyutu sınırı), kendi güvenlik zincirinde; `/internal/` genel proxy tarafından engellenir.
 - **Veritabanı rolleri:** analytics salt okunur bir rol ile yalnızca `anomaly` ve `detector_state` tablolarına yazabilen bir rol kullanır; açılışta rollerin tam olarak beklenen yetkilere sahip olduğunu doğrular, değilse başlamaz.
 - **Canlı akış:** tek kullanımlık biletler (32 rastgele bayt, 30 saniye, tek kullanım, yalnızca hash olarak saklanır); `ticket=` ve `access_token=` değerleri günlüklerde maskelenir ve proxy sorgu dizelerini kaydetmez.
+- **Webhook'lar (SSRF):** yalnızca DNS adı olan `https` adresleri, kimlik bilgisi yok, varsayılan port 443; adın çözüldüğü her adres genel olmalıdır (loopback, özel, link-local ve metadata, carrier-grade NAT ve geçiş aralıkları reddedilir) ve bağlantı denetlenen adrese sabitlenir. Denetim kayıt sırasında ve her teslimde yeniden yapılır. Yönlendirmeler izlenmez, yanıt gövdesi hiç okunmaz. Bkz. [ADR 0005](docs/ADR/0005-webhook-ssrf-and-outbox.md) (İngilizce).
+- **İmzalı webhook'lar:** `timestamp + "." + gövde` üzerinde, açılışta zorunlu olan en az 32 karakterlik bir gizli değerle HMAC-SHA256; alıcılar tekrar oynatmaları (replay) reddedebilir ve olay kimliğiyle tekrarları ayıklayabilir.
+- **İzleyici maskelemesi:** VIEWER rolündeki kullanıcılar webhook hedeflerini yalnızca ana makine adı olarak görür; kuralları yalnızca owner ve admin oluşturabilir, değiştirebilir veya silebilir.
+- **Güvensiz anahtarlar:** `ALERT_WEBHOOK_ALLOW_HTTP` ve `ALERT_WEBHOOK_ALLOW_PRIVATE_TARGETS` `test` ve `local` profilleri dışında reddedilir ve Compose tarafından iletilmez.
 - **Tarayıcı:** yanıt başına nonce'lu, satır içi script içermeyen sıkı bir Content-Security-Policy, yalnızca bellekte tutulan access token ve güvenli `returnUrl` işleme.
 
-Kabul edilen ödünleşimler [docs/KNOWN_LIMITATIONS.md](docs/KNOWN_LIMITATIONS.md) dosyasında listelenmiştir (İngilizce).
+OWASP ASVS 4.0.3 Seviye 1'e karşı bir öz değerlendirme [docs/SECURITY_CHECKLIST.md](docs/SECURITY_CHECKLIST.md) dosyasındadır; kabul edilen ödünleşimler [docs/KNOWN_LIMITATIONS.md](docs/KNOWN_LIMITATIONS.md) dosyasında listelenmiştir (ikisi de İngilizce).
 
 ## Proje durumu
 
@@ -220,24 +290,24 @@ Kabul edilen ödünleşimler [docs/KNOWN_LIMITATIONS.md](docs/KNOWN_LIMITATIONS.
 | P2 | Veri alımı ve sorgular: toplu alım, hız sınırları, örneklenmiş metrik sorguları, OpenAPI | Tamamlandı |
 | P3 | Analytics servisi: dedektörler, zamanlayıcı, dahili bildirim, SSE yayın yolu | Tamamlandı |
 | P4 | Pano: kimlik doğrulama akışları, genel bakış, metrik grafikleri, canlı anomali akışı, onaylama | Tamamlandı |
-| P5 | Alarm sistemi: kurallar, değerlendirme, webhook teslimi, geçmiş | Planlandı |
-| P6 | Sağlamlaştırma: gözlemlenebilirlik, yük testi, güvenlik kontrol listesi, son belgeler ve ADR'ler | Planlandı |
+| P5 | Alarm sistemi: kurallar, değerlendirme, webhook teslimi, geçmiş | Tamamlandı |
+| P6 | Sağlamlaştırma: gözlemlenebilirlik, yük testi, güvenlik kontrol listesi, son belgeler ve ADR'ler | Tamamlandı |
 
-Alarm sistemi henüz geliştirilmedi. `docs/ARCHITECTURE.md` bunun hedeflenen tasarımını anlatır; mevcut API ve arayüzde alarm kuralı yoktur.
+Planlanan tüm fazlar tamamlandı. Kalan eksikler (örneğin SMTP yok, veri saklama işi yok, Compose ortamında TLS yok) [docs/KNOWN_LIMITATIONS.md](docs/KNOWN_LIMITATIONS.md) ve [docs/SECURITY_CHECKLIST.md](docs/SECURITY_CHECKLIST.md) dosyalarında listelenmiştir.
 
 ## Proje yapısı
 
 ```text
 pulseboard/
 ├── apps/
-│   ├── api-core/          Spring Boot servisi: kimlik, kiracılık, veri alımı, sorgular, anomaliler, SSE
+│   ├── api-core/          Spring Boot servisi: kimlik, kiracılık, veri alımı, sorgular, anomaliler, SSE, alarm sistemi
 │   └── web/               nginx ile sunulan Angular 22 panosu
 ├── services/
 │   └── analytics/         FastAPI servisi: dedektörler, zamanlayıcı, anomali yazımı
 ├── contracts/             OpenAPI belgeleri ve olayların JSON Schema dosyaları
-├── infra/                 Docker Compose dosyaları ve PostgreSQL rol kurulumu
-├── scripts/               Uçtan uca kontrol ve Compose ayar kontrolü
-├── docs/                  Mimari, bilinen sınırlamalar, ekran görüntüleri
+├── infra/                 Docker Compose dosyaları, PostgreSQL rol kurulumu, Prometheus ve Grafana yapılandırması
+├── scripts/               Uçtan uca kontrol, Compose ayar kontrolü, k6 yük testi
+├── docs/                  Mimari, bilinen sınırlamalar, güvenlik kontrol listesi, yük testi, ADR'ler, ekran görüntüleri
 ├── .github/workflows/     CI: api-core, analytics, web, e2e
 ├── Makefile
 └── .env.example
@@ -250,9 +320,11 @@ pulseboard/
 | [docs/README.md](docs/README.md) | Dokümantasyon dizini |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Bileşenler, alan modeli, temel akışlar, dedektör şartnameleri, dahili sözleşmeler (İngilizce) |
 | [docs/KNOWN_LIMITATIONS.md](docs/KNOWN_LIMITATIONS.md) | Kabul edilen ödünleşimler (İngilizce) |
-| `docs/ADR` | Mimari karar kayıtları (klasör şimdilik boş) |
+| [docs/SECURITY_CHECKLIST.md](docs/SECURITY_CHECKLIST.md) | Kanıtları ve bilinen eksikleriyle OWASP ASVS 4.0.3 Seviye 1 öz değerlendirmesi (İngilizce) |
+| [docs/LOAD_TEST.md](docs/LOAD_TEST.md) | Ölçülmüş sonuçlu k6 yük testi ve isteğe bağlı Prometheus ile Grafana ortamı (İngilizce) |
+| [docs/ADR](docs/ADR/README.md) | Mimari karar kayıtları: monorepo, bölümlendirme, analytics rol ayrımı, SSE, webhook SSRF koruması ve outbox (İngilizce) |
 | [contracts](contracts) | `api-core.openapi.yaml`, `analytics.openapi.yaml`, olay JSON Schema dosyaları |
-| [apps/api-core/README.tr.md](apps/api-core/README.tr.md) | Backend'e genel bakış |
+| [apps/api-core/README.tr.md](apps/api-core/README.tr.md) | Backend'e genel bakış, uç noktalar, alarm sistemi, ayarlar |
 | [services/analytics/README.tr.md](services/analytics/README.tr.md) | Dedektörler, iş akışı, ayarlar |
 | [apps/web/README.tr.md](apps/web/README.tr.md) | Frontend'e genel bakış; tasarım sistemi [apps/web/DESIGN.md](apps/web/DESIGN.md) dosyasında |
 
@@ -266,9 +338,12 @@ pulseboard/
 | `REDIS_PASSWORD` | Redis `requirepass`; api-core ve analytics kullanır (yalnızca URL'de güvenli karakterler) |
 | `INTERNAL_SHARED_SECRET` | api-core / analytics dahili çağrıları için HMAC anahtarı, en az 32 karakter |
 | `JWT_SECRET` | JWT imza anahtarı, en az 32 bayt |
+| `ALERT_WEBHOOK_SIGNING_SECRET` | Alarm webhook'larını imzalayan HMAC anahtarı (`X-Pulseboard-Signature`), en az 32 karakter; api-core daha kısasıyla başlamayı reddeder |
 | `WEB_PORT` | Web giriş noktasının ana makine portu (varsayılan 8081) |
+| `GRAFANA_ADMIN_PASSWORD` | Yalnızca `make up-observability` için: Grafana yönetici parolası (orada zorunlu, varsayılanı yok) |
+| `GRAFANA_ADMIN_USER`, `GRAFANA_PORT` | İsteğe bağlı: Grafana yönetici kullanıcısı (varsayılan `admin`) ve loopback portu (varsayılan 3000) |
 
-Ayarlanabilir sınırlar ve zamanlayıcı ayarları `.env.example` dosyasında ve bileşen README'lerinde açıklanmıştır.
+İsteğe bağlı alarm ayarları (hepsinin varsayılanı vardır ve Compose tarafından iletilir): `ALERT_WEBHOOK_ALLOWED_PORTS` (443), `ALERT_MAX_RULES_PER_TENANT` (50), `ALERT_DISPATCHER_ENABLED` (true), `ALERT_DISPATCH_INTERVAL` (5s), `ALERT_DISPATCH_MAX_ATTEMPTS` (4), `ALERT_EVENTS_PER_PERIOD` (600) ve `ALERT_EVENTS_PERIOD` (1h). Ayarlanabilir sınırlar ve zamanlayıcı ayarları `.env.example` dosyasında ve bileşen README'lerinde açıklanmıştır.
 
 ## Katkı
 
