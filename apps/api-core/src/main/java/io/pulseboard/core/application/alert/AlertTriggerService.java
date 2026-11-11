@@ -70,8 +70,10 @@ public class AlertTriggerService {
      */
     public boolean fire(AlertRule rule, String sourceRef, Map<String, Object> details) {
         TenantId tenantId = rule.tenantId();
+        String cooldownToken;
         try {
-            if (!cooldown.tryStart(rule.id(), Duration.ofSeconds(rule.cooldownSeconds()))) {
+            cooldownToken = cooldown.tryStart(rule.id(), Duration.ofSeconds(rule.cooldownSeconds())).orElse(null);
+            if (cooldownToken == null) {
                 metrics.suppressed("cooldown");
                 return false;
             }
@@ -109,7 +111,7 @@ public class AlertTriggerService {
                 if (charged) {
                     refundBudget(tenantId);
                 }
-                cooldown.release(rule.id());
+                cooldown.release(rule.id(), cooldownToken);
             }
         }
     }

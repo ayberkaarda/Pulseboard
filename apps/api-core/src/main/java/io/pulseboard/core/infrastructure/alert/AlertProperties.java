@@ -46,7 +46,7 @@ public record AlertProperties(
      * @param backoff wait before attempt 2, 3, ...
      * @param hostFailureThreshold consecutive failures after which deliveries to a host pause
      * @param hostPause length of that pause
-     * @param deliveryTimeout hard limit for one delivery
+     * @param deliveryTimeout hard wall-clock limit for one delivery; also the limit of the webhook call itself
      */
     public record Dispatcher(
             boolean enabled,
@@ -113,6 +113,7 @@ public record AlertProperties(
 
     public WebhookPolicy toWebhookPolicy() {
         return new WebhookPolicy(webhook.signingSecret(), webhook.allowHttp(), webhook.allowPrivateTargets(),
-                Set.copyOf(webhook.allowedPorts()), webhook.connectTimeout(), webhook.readTimeout());
+                Set.copyOf(webhook.allowedPorts()), webhook.connectTimeout(), webhook.readTimeout(),
+                dispatcher.deliveryTimeout());
     }
 }

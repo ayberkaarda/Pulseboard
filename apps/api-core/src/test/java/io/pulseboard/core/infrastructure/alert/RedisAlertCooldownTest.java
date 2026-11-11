@@ -27,7 +27,7 @@ class RedisAlertCooldownTest {
 
             assertThatThrownBy(() -> cooldown.tryStart(rule, Duration.ofMinutes(5)))
                     .isInstanceOf(DependencyUnavailableException.class);
-            assertThatCode(() -> cooldown.release(rule)).doesNotThrowAnyException();
+            assertThatCode(() -> cooldown.release(rule, "t")).doesNotThrowAnyException();
         } finally {
             factory.destroy();
         }

@@ -16,6 +16,7 @@ import java.util.UUID;
  * @param target webhook URL or e-mail label; sensitive, never part of {@link #toString()}
  * @param createdBy creating user; {@code null} once that user was deleted
  * @param version optimistic-concurrency counter, incremented by every change
+ * @param lastTriggeredAt time of the newest alert event of this rule, {@code null} if it never fired
  */
 @TenantScoped
 public record AlertRule(
@@ -24,6 +25,7 @@ public record AlertRule(
         UUID metricId,
         String metricName,
         String metricUnit,
+        UUID serviceId,
         String serviceName,
         String name,
         AlertCondition condition,
@@ -37,7 +39,8 @@ public record AlertRule(
         UUID createdBy,
         Instant createdAt,
         Instant updatedAt,
-        long version) {
+        long version,
+        Instant lastTriggeredAt) {
 
     public AlertRule {
         Objects.requireNonNull(id, "id");
@@ -45,6 +48,7 @@ public record AlertRule(
         Objects.requireNonNull(metricId, "metricId");
         Objects.requireNonNull(metricName, "metricName");
         Objects.requireNonNull(metricUnit, "metricUnit");
+        Objects.requireNonNull(serviceId, "serviceId");
         Objects.requireNonNull(serviceName, "serviceName");
         Objects.requireNonNull(name, "name");
         Objects.requireNonNull(condition, "condition");

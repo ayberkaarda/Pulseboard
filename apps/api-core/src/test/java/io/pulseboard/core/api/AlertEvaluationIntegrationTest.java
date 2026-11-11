@@ -47,7 +47,7 @@ class AlertEvaluationIntegrationTest extends AlertIntegrationTest {
         // The event exists as soon as the ingestion answered, PENDING and due, before any delivery.
         UUID eventId = onlyEvent(rule.id());
         assertThat(status(eventId)).isEqualTo("PENDING");
-        assertThat(events(rule.id()).getFirst().get("source_ref")).isEqualTo(ts.toString());
+        assertThat(events(rule.id()).getFirst().get("source_ref")).isEqualTo(tenant.metricId() + "@" + ts);
         assertThat(requests(path)).isEmpty();
 
         dispatchUntil(() -> "SENT".equals(status(eventId)));
@@ -189,7 +189,7 @@ class AlertEvaluationIntegrationTest extends AlertIntegrationTest {
 
         assertThat(eventCount(rule.id())).isEqualTo(1);
         Map<String, Object> event = events(rule.id()).getFirst();
-        assertThat(event.get("source_ref")).isEqualTo(base.plusSeconds(20).toString());
+        assertThat(event.get("source_ref")).isEqualTo(tenant.metricId() + "@" + base.plusSeconds(20));
         assertThat(event.get("payload").toString()).contains("\"value\": 300.0");
 
         // The agent sends the same batch again, after the cooldown: the point is the idempotency key.

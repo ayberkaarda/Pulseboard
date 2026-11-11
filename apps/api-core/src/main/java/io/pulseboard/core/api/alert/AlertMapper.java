@@ -5,9 +5,13 @@ import io.pulseboard.core.api.alert.AlertDtos.AlertRuleRequest;
 import io.pulseboard.core.api.alert.AlertDtos.AlertRuleResponse;
 import io.pulseboard.core.api.alert.AlertDtos.AlertRuleUpdateRequest;
 import io.pulseboard.core.application.alert.AlertRuleCommand;
+import io.pulseboard.core.domain.alert.AlertChannel;
 import io.pulseboard.core.domain.alert.AlertEvent;
 import io.pulseboard.core.domain.alert.AlertRule;
 import io.pulseboard.core.domain.alert.DeliveryStatus;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.util.Locale;
 
 /** Maps alert rules and events to response bodies and request bodies to commands. */
 final class AlertMapper {
@@ -15,11 +19,30 @@ final class AlertMapper {
     private AlertMapper() {
     }
 
-    static AlertRuleResponse toResponse(AlertRule rule) {
+    /**
+     * Maps a rule; unless the caller may edit rules the target of a webhook rule is reduced to its host.
+     */
+    static AlertRuleResponse toResponse(AlertRule rule, boolean seesFullTarget) {
+        String target = seesFullTarget || rule.channel() != AlertChannel.WEBHOOK ? rule.target()
+                : maskWebhookTarget(rule.target());
         return new AlertRuleResponse(rule.id(), rule.metricId(), rule.metricName(), rule.metricUnit(),
-                rule.serviceName(), rule.name(), rule.condition(), rule.operator(), rule.threshold(),
-                rule.minSeverity(), rule.cooldownSeconds(), rule.channel(), rule.target(), rule.enabled(),
-                rule.createdBy(), rule.createdAt(), rule.updatedAt(), rule.version());
+                rule.serviceId(), rule.serviceName(), rule.name(), rule.condition(), rule.operator(),
+                rule.threshold(), rule.minSeverity(), rule.cooldownSeconds(), rule.channel(), target,
+                rule.enabled(), rule.createdBy(), rule.createdAt(), rule.updatedAt(), rule.version(),
+                rule.lastTriggeredAt());
+    }
+
+    /** Keeps scheme and host only: {@code https://hooks.example.com/***}. */
+    static String maskWebhookTarget(String target) {
+        try {
+            URI uri = new URI(target);
+            if (uri.getScheme() != null && uri.getHost() != null) {
+                return uri.getScheme().toLowerCase(Locale.ROOT) + "://" + uri.getHost() + "/***";
+            }
+        } catch (URISyntaxException ex) {
+            // falls through to the fully masked form
+        }
+        return "***";
     }
 
     static AlertEventResponse toResponse(AlertEvent event) {

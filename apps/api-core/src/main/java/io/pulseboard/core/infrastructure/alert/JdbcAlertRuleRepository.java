@@ -31,9 +31,11 @@ public class JdbcAlertRuleRepository implements AlertRuleRepository {
 
     private static final String SELECT = """
             SELECT r.id, r.tenant_id, r.metric_id, m.name AS metric_name, m.unit AS metric_unit,
-                   s.name AS service_name, r.name, r.condition, r.operator, r.threshold, r.min_severity,
+                   s.id AS service_id, s.name AS service_name, r.name, r.condition, r.operator, r.threshold, r.min_severity,
                    r.cooldown_seconds, r.channel, r.target, r.enabled, r.created_by, r.created_at, r.updated_at,
-                   r.version
+                   r.version,
+                   (SELECT max(e.triggered_at) FROM alert_event e
+                     WHERE e.tenant_id = r.tenant_id AND e.rule_id = r.id) AS last_triggered_at
               FROM alert_rule r
               JOIN metric_definition m ON m.id = r.metric_id AND m.tenant_id = r.tenant_id
               JOIN service s ON s.id = m.service_id AND s.tenant_id = m.tenant_id
@@ -143,12 +145,14 @@ public class JdbcAlertRuleRepository implements AlertRuleRepository {
         Double thresholdValue = rs.wasNull() ? null : threshold;
         String operator = rs.getString("operator");
         String minSeverity = rs.getString("min_severity");
+        OffsetDateTime lastTriggered = rs.getObject("last_triggered_at", OffsetDateTime.class);
         return new AlertRule(
                 rs.getObject("id", UUID.class),
                 TenantId.of(rs.getObject("tenant_id", UUID.class)),
                 rs.getObject("metric_id", UUID.class),
                 rs.getString("metric_name"),
                 rs.getString("metric_unit"),
+                rs.getObject("service_id", UUID.class),
                 rs.getString("service_name"),
                 rs.getString("name"),
                 AlertCondition.valueOf(rs.getString("condition")),
@@ -162,7 +166,8 @@ public class JdbcAlertRuleRepository implements AlertRuleRepository {
                 rs.getObject("created_by", UUID.class),
                 rs.getObject("created_at", OffsetDateTime.class).toInstant(),
                 rs.getObject("updated_at", OffsetDateTime.class).toInstant(),
-                rs.getLong("version"));
+                rs.getLong("version"),
+                lastTriggered == null ? null : lastTriggered.toInstant());
     }
 
     private static String name(Enum<?> value) {

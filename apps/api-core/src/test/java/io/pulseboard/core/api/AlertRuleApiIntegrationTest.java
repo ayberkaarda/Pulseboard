@@ -186,8 +186,11 @@ class AlertRuleApiIntegrationTest extends AlertIntegrationTest {
                 .expectBody().jsonPath("$.length()").isEqualTo(0);
 
         // Nothing of the owner's rule changed.
-        assertThat(call(HttpMethod.GET, RULES + "/{id}", owner.ownerToken(), null, rule.id())
-                .expectBody(AlertRuleResponse.class).returnResult().getResponseBody()).isEqualTo(rule);
+        // (lastTriggeredAt is the one field that moved: the event fired after the rule was created.)
+        AlertRuleResponse after = call(HttpMethod.GET, RULES + "/{id}", owner.ownerToken(), null, rule.id())
+                .expectBody(AlertRuleResponse.class).returnResult().getResponseBody();
+        assertThat(after.lastTriggeredAt()).isNotNull();
+        assertThat(after).usingRecursiveComparison().ignoringFields("lastTriggeredAt").isEqualTo(rule);
     }
 
     @Test

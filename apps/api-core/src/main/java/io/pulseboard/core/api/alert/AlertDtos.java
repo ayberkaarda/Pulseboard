@@ -86,6 +86,8 @@ public final class AlertDtos {
             @Schema(requiredMode = REQUIRED) UUID metricId,
             @Schema(requiredMode = REQUIRED, description = "Name of the metric.") String metricName,
             @Schema(requiredMode = REQUIRED, description = "Unit of the metric.") String metricUnit,
+            @Schema(requiredMode = REQUIRED, description = "Id of the service that owns the metric.")
+            UUID serviceId,
             @Schema(requiredMode = REQUIRED, description = "Name of the service that owns the metric.")
             String serviceName,
             @Schema(requiredMode = REQUIRED) String name,
@@ -99,14 +101,18 @@ public final class AlertDtos {
             @Schema(requiredMode = REQUIRED) int cooldownSeconds,
             @Schema(requiredMode = REQUIRED) AlertChannel channel,
             @Schema(requiredMode = REQUIRED, description = "Webhook URL or e-mail label. Only visible to "
-                    + "authenticated users of the tenant; never written to logs in full.") String target,
+                    + "authenticated users of the tenant; never written to logs in full. For VIEWER users the "
+                    + "target of a WEBHOOK rule is masked to its host (`https://hooks.example.com/***`); OWNER and "
+                    + "ADMIN see the full URL.") String target,
             @Schema(requiredMode = REQUIRED) boolean enabled,
             @Schema(requiredMode = REQUIRED, nullable = true, description = "Creating user; null once that user "
                     + "was deleted.") UUID createdBy,
             @Schema(requiredMode = REQUIRED) Instant createdAt,
             @Schema(requiredMode = REQUIRED) Instant updatedAt,
             @Schema(requiredMode = REQUIRED, description = "Changes with every update; send it back with a "
-                    + "change.") long version) {
+                    + "change.") long version,
+            @Schema(requiredMode = REQUIRED, nullable = true, description = "Time of the newest alert event of "
+                    + "this rule; null if it never fired.") Instant lastTriggeredAt) {
 
         /** Hides the target, which can be a URL with a secret in it. */
         @Override

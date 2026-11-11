@@ -22,6 +22,7 @@ import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -63,10 +64,13 @@ public class AlertRuleController {
 
     @GetMapping
     @Operation(operationId = "listAlertRules", summary = "List alert rules",
-            description = "All rules of the caller's tenant, oldest first (a tenant owns at most 50 by default).",
+            description = "All rules of the caller's tenant, oldest first (a tenant owns at most 50 by default). "
+                    + "VIEWER users see the target of WEBHOOK rules masked to the host.",
             responses = @ApiResponse(responseCode = "200", description = "The rules"))
-    public List<AlertRuleResponse> list() {
-        return ruleService.list(tenantContext.requireTenantId()).stream().map(AlertMapper::toResponse).toList();
+    public List<AlertRuleResponse> list(@Parameter(hidden = true) Authentication authentication) {
+        boolean full = seesFullTarget(authentication);
+        return ruleService.list(tenantContext.requireTenantId()).stream()
+                .map(rule -> AlertMapper.toResponse(rule, full)).toList();
     }
 
     @GetMapping("/{id}")
@@ -77,8 +81,10 @@ public class AlertRuleController {
                         content = @Content(mediaType = OpenApiConfiguration.PROBLEM_JSON,
                                 schema = @Schema(implementation = ProblemDocument.class)))
             })
-    public AlertRuleResponse get(@PathVariable("id") UUID id) {
-        return AlertMapper.toResponse(ruleService.get(tenantContext.requireTenantId(), id));
+    public AlertRuleResponse get(@PathVariable("id") UUID id,
+            @Parameter(hidden = true) Authentication authentication) {
+        return AlertMapper.toResponse(ruleService.get(tenantContext.requireTenantId(), id),
+                seesFullTarget(authentication));
     }
 
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
@@ -90,9 +96,9 @@ public class AlertRuleController {
                     + "`X-Pulseboard-Signature`: the lower-case hex HMAC-SHA256 of `<timestamp>.<raw body>`, keyed "
                     + "with the server's ALERT_WEBHOOK_SIGNING_SECRET. A receiver recomputes it over the bytes it "
                     + "received, compares in constant time, rejects old timestamps and deduplicates on the event id "
-                    + "(delivery is at least once). Redirects are not followed. 2xx counts as delivered, 4xx other "
-                    + "than 408 and 429 as a permanent failure, anything else is retried (4 attempts by default, "
-                    + "10 s, 60 s and 300 s apart).",
+                    + "(delivery is at least once). Redirects are not followed: a 3xx answer is a permanent failure. 2xx "
+                    + "counts as delivered, 4xx other than 408 and 429 as a permanent failure; a transport error, 408, "
+                    + "429 and 5xx are retried (4 attempts by default, 10 s, 60 s and 300 s apart).",
             responses = {
                 @ApiResponse(responseCode = "201", description = "The rule was created"),
                 @ApiResponse(responseCode = "400", description = "Invalid field, unknown metric or unacceptable "
@@ -107,7 +113,7 @@ public class AlertRuleController {
     public ResponseEntity<AlertRuleResponse> create(@RequestBody AlertRuleRequest request,
             @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt) {
         AlertRuleResponse created = AlertMapper.toResponse(ruleService.create(tenantContext.requireTenantId(),
-                userId(jwt), AlertMapper.toCommand(request)));
+                userId(jwt), AlertMapper.toCommand(request)), true);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
 
@@ -135,7 +141,7 @@ public class AlertRuleController {
                     List.of(new Violation("/version", "is required")));
         }
         return AlertMapper.toResponse(ruleService.update(tenantContext.requireTenantId(), id, request.version(),
-                AlertMapper.toCommand(request)));
+                AlertMapper.toCommand(request)), true);
     }
 
     @PatchMapping(path = "/{id}", consumes = MediaType.APPLICATION_JSON_VALUE)
@@ -160,7 +166,7 @@ public class AlertRuleController {
                     List.of(new Violation("/enabled", "is required")));
         }
         return AlertMapper.toResponse(ruleService.setEnabled(tenantContext.requireTenantId(), id,
-                request.enabled(), request.version()));
+                request.enabled(), request.version()), true);
     }
 
     @DeleteMapping("/{id}")
@@ -175,6 +181,12 @@ public class AlertRuleController {
     public ResponseEntity<Void> delete(@PathVariable("id") UUID id) {
         ruleService.delete(tenantContext.requireTenantId(), id);
         return ResponseEntity.noContent().build();
+    }
+
+    /** Only OWNER and ADMIN may see (and need) the full target; everybody else gets the masked form. */
+    private static boolean seesFullTarget(Authentication authentication) {
+        return authentication != null && authentication.getAuthorities().stream()
+                .anyMatch(a -> "ROLE_OWNER".equals(a.getAuthority()) || "ROLE_ADMIN".equals(a.getAuthority()));
     }
 
     private static UUID userId(Jwt jwt) {

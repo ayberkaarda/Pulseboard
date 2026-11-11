@@ -85,7 +85,7 @@ public class WebhookTargetGuard {
         if (!policy.allowedPorts().contains(port)) {
             throw reject("port is not allowed");
         }
-        return new WebhookTarget(uri, host, port);
+        return new WebhookTarget(normalisedUri(uri, scheme, host), host, port);
     }
 
     /**
@@ -121,6 +121,28 @@ public class WebhookTargetGuard {
             }
         }
         return new ResolvedWebhookTarget(target, pinned);
+    }
+
+    /**
+     * The URI the sender really uses: lower-case scheme, the normalised host (no trailing dot, so it matches the
+     * pinned name, the TLS server name and the Host header), the original port, path and query; no fragment.
+     */
+    private static URI normalisedUri(URI original, String scheme, String host) throws UnsafeWebhookTargetException {
+        StringBuilder text = new StringBuilder(scheme).append("://").append(host);
+        if (original.getPort() != -1) {
+            text.append(':').append(original.getPort());
+        }
+        if (original.getRawPath() != null) {
+            text.append(original.getRawPath());
+        }
+        if (original.getRawQuery() != null) {
+            text.append('?').append(original.getRawQuery());
+        }
+        try {
+            return new URI(text.toString());
+        } catch (URISyntaxException ex) {
+            throw reject("URL is not valid");
+        }
     }
 
     private static String normaliseHost(String rawHost) throws UnsafeWebhookTargetException {

@@ -122,9 +122,17 @@ public class AlertEvaluationService {
         details.put("threshold", rule.threshold());
         details.put("operator", rule.operator().name());
         details.put("observedAt", point.timestamp().toString());
-        guarded(rule, point.timestamp().toString(), details);
+        guarded(rule, point.metricId() == null ? point.timestamp().toString() : rule.metricId() + "@" + point.timestamp(), details);
     }
 
+    /**
+     * Matches the anomalies against the rules of their metric. Comparing a severity is a plain in-memory test, so it
+     * is not limited (a notification holds a bounded number of anomalies and a metric a bounded number of rules);
+     * what is bounded is the work that follows a match, the {@code fire} calls (cooldown store, budget, insert), per
+     * tenant and notification. Rules are loaded once per tenant and metric, and the anomalies are visited by
+     * severity, highest first, so that in the unlikely event of the cap being hit the most severe ones were handled.
+     * The cap counts only rules that matched. The skipped count is logged once.
+     */
     private void evaluateAnomalies(Collection<Anomaly> anomalies) {
         Map<TenantId, Set<UUID>> metricsByTenant = new LinkedHashMap<>();
         for (Anomaly anomaly : anomalies) {
@@ -139,25 +147,39 @@ public class AlertEvaluationService {
             }
             rules.put(tenantId, byMetric);
         });
-        int budget = policy.maxRulesPerBatch() * 5;
-        for (Anomaly anomaly : anomalies) {
+        List<Anomaly> ordered = new ArrayList<>(anomalies);
+        ordered.sort(Comparator.comparing(Anomaly::severity).reversed());
+        Map<TenantId, Integer> fired = new HashMap<>();
+        Map<TenantId, Integer> skipped = new HashMap<>();
+        int firesPerTenant = policy.maxRulesPerBatch() * 5;
+        for (Anomaly anomaly : ordered) {
             List<AlertRule> candidates = rules.getOrDefault(anomaly.tenantId(), Map.of())
                     .getOrDefault(anomaly.metricId(), List.of());
-            for (int i = 0; i < Math.min(candidates.size(), policy.maxRulesPerMetric()) && budget > 0;
-                    i++, budget--) {
+            for (int i = 0; i < Math.min(candidates.size(), policy.maxRulesPerMetric()); i++) {
                 AlertRule rule = candidates.get(i);
-                if (rule.minSeverity() != null && anomaly.severity().compareTo(rule.minSeverity()) >= 0) {
-                    Map<String, Object> details = new LinkedHashMap<>();
-                    details.put("severity", anomaly.severity().name());
-                    details.put("minSeverity", rule.minSeverity().name());
-                    details.put("score", anomaly.score());
-                    details.put("detector", anomaly.detector().name());
-                    details.put("anomalyId", anomaly.id().toString());
-                    details.put("windowStart", anomaly.windowStart().toString());
-                    details.put("windowEnd", anomaly.windowEnd().toString());
-                    guarded(rule, anomaly.id().toString(), details);
+                if (rule.minSeverity() == null || anomaly.severity().compareTo(rule.minSeverity()) < 0) {
+                    continue;
                 }
+                if (fired.merge(anomaly.tenantId(), 1, Integer::sum) > firesPerTenant) {
+                    skipped.merge(anomaly.tenantId(), 1, Integer::sum);
+                    continue;
+                }
+                Map<String, Object> details = new LinkedHashMap<>();
+                details.put("severity", anomaly.severity().name());
+                details.put("minSeverity", rule.minSeverity().name());
+                details.put("score", anomaly.score());
+                details.put("detector", anomaly.detector().name());
+                details.put("anomalyId", anomaly.id().toString());
+                details.put("windowStart", anomaly.windowStart().toString());
+                details.put("windowEnd", anomaly.windowEnd().toString());
+                guarded(rule, anomaly.id().toString(), details);
             }
+        }
+        if (!skipped.isEmpty()) {
+            metrics.evaluationError();
+            LOG.warn("Anomaly rule evaluation hit its per-tenant limit of {} firings per notification; skipped {} "
+                    + "firings in {} tenant(s)", firesPerTenant, skipped.values().stream().mapToInt(i -> i).sum(),
+                    skipped.size());
         }
     }
 

@@ -30,7 +30,7 @@ public class OpenApiConfiguration {
     /** Security scheme of the live stream for clients that cannot set headers: a one-time ticket in the query. */
     public static final String STREAM_TICKET_AUTH = "streamTicket";
 
-    static final String CONTRACT_VERSION = "0.7.0";
+    static final String CONTRACT_VERSION = "0.8.0";
 
     @Bean
     OpenAPI pulseboardOpenApi() {

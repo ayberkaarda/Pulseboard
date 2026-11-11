@@ -12,8 +12,10 @@ import java.util.Set;
  * @param allowHttp accept {@code http://} targets (tests and local development only)
  * @param allowPrivateTargets accept loopback and private addresses (tests and local development only)
  * @param allowedPorts ports a target may use
- * @param connectTimeout limit for establishing the connection
- * @param readTimeout limit for waiting on the response
+ * @param connectTimeout limit for establishing the connection (and for the TLS handshake)
+ * @param readTimeout limit for waiting on the response, per read
+ * @param totalTimeout wall-clock limit for the whole call, from the first connect to the status line and headers;
+ *     enforced by a watchdog that aborts the connection
  */
 public record WebhookPolicy(
         String signingSecret,
@@ -21,13 +23,24 @@ public record WebhookPolicy(
         boolean allowPrivateTargets,
         Set<Integer> allowedPorts,
         Duration connectTimeout,
-        Duration readTimeout) {
+        Duration readTimeout,
+        Duration totalTimeout) {
+
+    /** Default wall-clock limit of a call when none is given. */
+    public static final Duration DEFAULT_TOTAL_TIMEOUT = Duration.ofSeconds(20);
 
     public WebhookPolicy {
         Objects.requireNonNull(signingSecret, "signingSecret");
         allowedPorts = Set.copyOf(allowedPorts);
         Objects.requireNonNull(connectTimeout, "connectTimeout");
         Objects.requireNonNull(readTimeout, "readTimeout");
+        Objects.requireNonNull(totalTimeout, "totalTimeout");
+    }
+
+    public WebhookPolicy(String signingSecret, boolean allowHttp, boolean allowPrivateTargets,
+            Set<Integer> allowedPorts, Duration connectTimeout, Duration readTimeout) {
+        this(signingSecret, allowHttp, allowPrivateTargets, allowedPorts, connectTimeout, readTimeout,
+                DEFAULT_TOTAL_TIMEOUT);
     }
 
     /** Whether webhook delivery can sign requests. */
@@ -39,6 +52,6 @@ public record WebhookPolicy(
     public String toString() {
         return "WebhookPolicy[allowHttp=" + allowHttp + ", allowPrivateTargets=" + allowPrivateTargets
                 + ", allowedPorts=" + allowedPorts + ", connectTimeout=" + connectTimeout
-                + ", readTimeout=" + readTimeout + "]";
+                + ", readTimeout=" + readTimeout + ", totalTimeout=" + totalTimeout + "]";
     }
 }

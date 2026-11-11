@@ -81,9 +81,11 @@ class AlertDeliveryServiceTest {
                 new HostCircuitBreaker(dispatch, clock), JsonMapper.builder().build(), clock);
     }
 
+    private static final TenantId TENANT = TenantId.of(UUID.randomUUID());
+
     private static DueAlert alert(String target) {
         UUID id = UUID.randomUUID();
-        return new DueAlert(id, TenantId.of(UUID.randomUUID()), UUID.randomUUID(), "rule", true,
+        return new DueAlert(id, TENANT, UUID.randomUUID(), "rule", true,
                 AlertChannel.WEBHOOK, target, Map.of("eventId", id.toString(), "ruleName", "rule", "value", 12.5), 1);
     }
 

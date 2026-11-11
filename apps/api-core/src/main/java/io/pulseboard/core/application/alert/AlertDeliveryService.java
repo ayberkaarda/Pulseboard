@@ -86,7 +86,7 @@ public class AlertDeliveryService {
             return DeliveryOutcome.failed("target rejected: " + ex.getMessage());
         }
         String hostKey = target.hostKey();
-        Instant pausedUntil = breaker.pausedUntil(hostKey);
+        Instant pausedUntil = breaker.pausedUntil(alert.tenantId(), hostKey);
         if (pausedUntil != null) {
             LOG.debug("Delivery postponed, receiver paused: event={} host={}", alert.eventId(), hostKey);
             return DeliveryOutcome.defer(pausedUntil);
@@ -96,7 +96,7 @@ public class AlertDeliveryService {
             resolved = guard.resolve(target);
         } catch (UnsafeWebhookTargetException ex) {
             if (ex.isTransientFailure()) {
-                breaker.recordFailure(hostKey);
+                breaker.recordFailure(alert.tenantId(), hostKey);
                 return DeliveryOutcome.retry(ex.getMessage());
             }
             return DeliveryOutcome.failed("target rejected: " + ex.getMessage());
@@ -117,24 +117,28 @@ public class AlertDeliveryService {
         try {
             status = sender.post(resolved, headers, body);
         } catch (WebhookTransportException ex) {
-            breaker.recordFailure(hostKey);
+            breaker.recordFailure(alert.tenantId(), hostKey);
             LOG.info("Webhook delivery failed: event={} host={} reason={}", alert.eventId(), hostKey,
                     ex.getMessage());
             return DeliveryOutcome.retry(ex.getMessage());
         }
         if (status >= 200 && status < 300) {
-            breaker.recordSuccess(hostKey);
+            breaker.recordSuccess(alert.tenantId(), hostKey);
             return DeliveryOutcome.sent();
         }
         LOG.info("Webhook receiver answered with an error: event={} host={} status={}", alert.eventId(), hostKey,
                 status);
-        boolean retryable = status == 408 || status == 429 || status >= 500 || status < 200;
-        if (retryable) {
-            breaker.recordFailure(hostKey);
+        if (status == 408 || status >= 500) {
+            // The receiver (or the path to it) is unhealthy: counts towards the breaker.
+            breaker.recordFailure(alert.tenantId(), hostKey);
+            return DeliveryOutcome.retry("HTTP " + status);
+        }
+        if (status == 429 || status < 200) {
+            // The receiver asks to slow down: retried later, but this is not a failure for the breaker.
             return DeliveryOutcome.retry("HTTP " + status);
         }
         // The receiver is alive and refused or redirected the request: retrying the same request cannot help.
-        breaker.recordSuccess(hostKey);
+        breaker.recordSuccess(alert.tenantId(), hostKey);
         return DeliveryOutcome.failed(status >= 300 && status < 400 ? "HTTP " + status + " (redirects are not followed)"
                 : "HTTP " + status);
     }
