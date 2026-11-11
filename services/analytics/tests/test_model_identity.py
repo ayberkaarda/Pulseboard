@@ -398,4 +398,5 @@ def _with_core(settings: Settings, server: FakeApiCore) -> Settings:
         api_core_base_url=server.url,
         internal_shared_secret=SECRET,
         scheduler_enabled=False,
+        metrics_enabled=False,
     )

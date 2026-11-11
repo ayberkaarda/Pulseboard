@@ -37,6 +37,7 @@ def client(
         api_core_base_url=api_core.url,
         internal_shared_secret=SECRET,
         scheduler_enabled=False,
+        metrics_enabled=False,
     )
     with TestClient(create_app(configured)) as test_client:
         yield test_client
@@ -178,6 +179,7 @@ def test_notify_outage_does_not_fail_the_request(
             api_core_base_url=server.url,
             internal_shared_secret=SECRET,
             scheduler_enabled=False,
+            metrics_enabled=False,
         )
         body = _body(_spiky_metric(owner))
         with TestClient(create_app(configured)) as test_client:

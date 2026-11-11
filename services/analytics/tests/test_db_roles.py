@@ -90,6 +90,7 @@ def _settings(reader_url: str, writer_url: str, redis_url: str) -> Settings:
         api_core_base_url="http://127.0.0.1:9",
         internal_shared_secret=SECRET,
         scheduler_enabled=True,
+        metrics_enabled=False,
     )
 
 

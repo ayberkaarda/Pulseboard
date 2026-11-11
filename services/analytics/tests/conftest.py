@@ -101,6 +101,7 @@ def settings(reader_url: str, writer_url: str, redis_address: tuple[str, int]) -
         api_core_base_url="http://127.0.0.1:9",
         internal_shared_secret=SECRET,
         scheduler_enabled=False,
+        metrics_enabled=False,
     )
 
 
