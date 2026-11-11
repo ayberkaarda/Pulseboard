@@ -10,6 +10,8 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { RouterLink } from '@angular/router';
 
+import { Clock } from '../../core/time/clock.service';
+import { absoluteTime, relativeTime } from '../../shared/format/format-time';
 import { ConfirmService } from '../../shared/confirm/confirm.service';
 import { LoadErrorComponent } from '../../shared/load-state/load-error.component';
 import { SkeletonRowsComponent } from '../../shared/load-state/skeleton-rows.component';
@@ -45,6 +47,7 @@ import { AlertRulesStore } from './alert-rules.store';
 export class AlertRulesPage {
   protected readonly store = inject(AlertRulesStore);
   private readonly confirmation = inject(ConfirmService);
+  private readonly clock = inject(Clock);
   private readonly heading = viewChild.required<ElementRef<HTMLElement>>('heading');
 
   /** What the body shows. A reload keeps the rules on screen. */
@@ -75,8 +78,22 @@ export class AlertRulesPage {
     return CHANNEL_LABELS[rule.channel];
   }
 
+  /**
+   * Where the rule notifies. Managers see the host only (the rest of a webhook address may be a
+   * secret). Everyone else already gets the address masked by the server, which is shown as it came.
+   */
   protected where(rule: AlertRule): string {
-    return targetDisplay(rule.channel, rule.target);
+    return this.store.canManage() ? targetDisplay(rule.channel, rule.target) : rule.target;
+  }
+
+  protected lastTriggered(rule: AlertRule): string {
+    return rule.lastTriggeredAt === null
+      ? 'Never triggered'
+      : relativeTime(Date.parse(rule.lastTriggeredAt), this.clock.now());
+  }
+
+  protected lastTriggeredTitle(rule: AlertRule): string | null {
+    return rule.lastTriggeredAt === null ? null : absoluteTime(Date.parse(rule.lastTriggeredAt));
   }
 
   protected toggle(rule: AlertRule, enabled: boolean): void {

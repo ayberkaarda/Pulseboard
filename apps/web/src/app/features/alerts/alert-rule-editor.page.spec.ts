@@ -307,6 +307,20 @@ describe('AlertRuleEditorPage editing a rule', () => {
     expect(page.hasUnsavedChanges()).toBe(false);
   });
 
+  it('preselects the service named by the rule and loads the metrics of that service only', async () => {
+    const other = { ...SERVICE, id: '99999999-9999-4999-8999-999999999999', name: 'billing' };
+    const rule = rawRule();
+    const env = await renderEditor({ id: rule.id });
+    env.http.expectOne(LIST).flush([rule]);
+    env.http.expectOne('/api/v1/services').flush([SERVICE, other]);
+    (await waitFor(() => env.http.expectOne(`/api/v1/services/${SERVICE_ID}/metrics`))).flush([
+      METRIC,
+    ]);
+    await waitFor(() => expect(screen.getByLabelText(/^Service/)).toHaveValue(SERVICE_ID));
+    await waitFor(() => expect(screen.getByLabelText(/^Metric/)).toHaveValue(METRIC_ID));
+    env.http.expectNone(`/api/v1/services/${other.id}/metrics`);
+  });
+
   it('sends a PUT with the version it read', async () => {
     const { http, user, rule } = await renderEdit();
     const name = screen.getByLabelText(/^Rule name/);

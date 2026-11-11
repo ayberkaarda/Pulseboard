@@ -85,6 +85,25 @@ describe('AlertRulesPage', () => {
     expect(screen.queryByText(/only owners and admins can create/i)).not.toBeInTheDocument();
   });
 
+  it('shows when a rule last triggered, with the exact time as title, or that it never did', async () => {
+    const twoHoursAgo = new Date(Date.now() - 2 * 3_600_000).toISOString();
+    await renderPage('OWNER', [
+      rawRule({ name: 'Fired', lastTriggeredAt: twoHoursAgo }),
+      rawRule({ name: 'Quiet', lastTriggeredAt: null }),
+    ]);
+    const [fired, quiet] = screen.getAllByRole('listitem');
+    const when = within(fired).getByText('2 hours ago');
+    expect(when).toHaveAttribute('title', expect.stringMatching(/^[A-Z][a-z]{2} \d{1,2}, \d{4} /));
+    expect(within(quiet).getByText('Never triggered')).toBeInTheDocument();
+    expect(within(quiet).getByText('Never triggered')).not.toHaveAttribute('title');
+  });
+
+  it('shows the masked address of a viewer as the server returned it, without a copy button', async () => {
+    await renderPage('VIEWER', [rawRule({ target: 'https://hooks.example.com/***' })]);
+    expect(screen.getByText('Webhook, https://hooks.example.com/***')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /copy/i })).not.toBeInTheDocument();
+  });
+
   it('renders no controls for a viewer, and says why', async () => {
     await renderPage('VIEWER', [
       rawRule({ name: 'Latency too high', enabled: true }),

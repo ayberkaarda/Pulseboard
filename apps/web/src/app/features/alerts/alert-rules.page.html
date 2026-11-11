@@ -78,6 +78,12 @@
                 <dt>Notifies</dt>
                 <dd>{{ channel(rule) }}, {{ where(rule) }}</dd>
               </div>
+              <div>
+                <dt>Last triggered</dt>
+                <dd class="pb-figures" [attr.title]="lastTriggeredTitle(rule)">
+                  {{ lastTriggered(rule) }}
+                </dd>
+              </div>
             </dl>
             <div class="state">
               @if (store.canManage()) {

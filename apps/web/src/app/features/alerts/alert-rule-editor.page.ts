@@ -253,32 +253,12 @@ export class AlertRuleEditorPage implements HasUnsavedChanges {
       }
     });
 
-    // Editing: once the rule is there, fill the form; then find the service that owns its metric
-    // (the rule only carries the service name).
+    // Editing: once the rule is there, fill the form (the rule names its service, so the picker and
+    // the metric list of that one service follow from the form).
     effect(() => {
       const rule = this.rule();
       if (this.editing && !this.populated() && this.store.status() === 'loaded' && rule !== null) {
         untracked(() => this.populate());
-      }
-    });
-    effect(() => {
-      const services = this.catalog.services();
-      if (!this.editing || services.status !== 'loaded') {
-        return;
-      }
-      untracked(() => this.catalog.ensureMetrics(services.items.map((service) => service.id)));
-    });
-    effect(() => {
-      const rule = this.rule();
-      const catalogMetrics = this.catalog.metrics();
-      if (!this.editing || rule === null || untracked(() => this.serviceId()) !== '') {
-        return;
-      }
-      for (const [serviceId, list] of Object.entries(catalogMetrics)) {
-        if (list.items.some((metric) => metric.id === rule.metricId)) {
-          untracked(() => this.controls.serviceId.setValue(serviceId));
-          return;
-        }
       }
     });
   }

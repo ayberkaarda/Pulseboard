@@ -216,7 +216,7 @@ export function wireRuleForm(form: RuleForm, silent: () => boolean = () => false
 export function ruleToFormValue(rule: AlertRule): ReturnType<RuleForm['getRawValue']> {
   return {
     name: rule.name,
-    serviceId: '',
+    serviceId: rule.serviceId,
     metricId: rule.metricId,
     condition: rule.condition,
     operator: rule.operator ?? 'GT',

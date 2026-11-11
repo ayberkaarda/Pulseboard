@@ -73,7 +73,7 @@
 
 .facts {
   display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr) minmax(0, 1.6fr);
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr) minmax(0, 1.6fr) minmax(0, 1fr);
   gap: var(--pb-space-4);
   margin: 0;
 

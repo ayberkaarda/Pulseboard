@@ -16,6 +16,7 @@ export function rawRule(overrides: Partial<AlertRule> = {}): AlertRule {
   return {
     id: id('aaaaaaaa'),
     name: 'Latency too high',
+    serviceId: SERVICE_ID,
     metricId: METRIC_ID,
     metricName: 'latency.p95',
     metricUnit: 'ms',
@@ -31,6 +32,7 @@ export function rawRule(overrides: Partial<AlertRule> = {}): AlertRule {
     version: 1,
     createdAt: '2026-05-01T10:00:00Z',
     updatedAt: '2026-05-01T10:00:00Z',
+    lastTriggeredAt: null,
     createdBy: null,
     ...overrides,
   };

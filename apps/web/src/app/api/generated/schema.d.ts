@@ -50,13 +50,13 @@ export interface paths {
         };
         /**
          * List alert rules
-         * @description All rules of the caller's tenant, oldest first (a tenant owns at most 50 by default).
+         * @description All rules of the caller's tenant, oldest first (a tenant owns at most 50 by default). VIEWER users see the target of WEBHOOK rules masked to the host.
          */
         get: operations["listAlertRules"];
         put?: never;
         /**
          * Create an alert rule
-         * @description OWNER and ADMIN only. A WEBHOOK target is checked against server-side request forgery rules before it is stored (see the `target` field) and again for every delivery. Deliveries are POST requests with the event's `payload` as the JSON body and the headers `X-Pulseboard-Event-Id`, `X-Pulseboard-Timestamp` (Unix seconds) and `X-Pulseboard-Signature`: the lower-case hex HMAC-SHA256 of `<timestamp>.<raw body>`, keyed with the server's ALERT_WEBHOOK_SIGNING_SECRET. A receiver recomputes it over the bytes it received, compares in constant time, rejects old timestamps and deduplicates on the event id (delivery is at least once). Redirects are not followed. 2xx counts as delivered, 4xx other than 408 and 429 as a permanent failure, anything else is retried (4 attempts by default, 10 s, 60 s and 300 s apart).
+         * @description OWNER and ADMIN only. A WEBHOOK target is checked against server-side request forgery rules before it is stored (see the `target` field) and again for every delivery. Deliveries are POST requests with the event's `payload` as the JSON body and the headers `X-Pulseboard-Event-Id`, `X-Pulseboard-Timestamp` (Unix seconds) and `X-Pulseboard-Signature`: the lower-case hex HMAC-SHA256 of `<timestamp>.<raw body>`, keyed with the server's ALERT_WEBHOOK_SIGNING_SECRET. A receiver recomputes it over the bytes it received, compares in constant time, rejects old timestamps and deduplicates on the event id (delivery is at least once). Redirects are not followed: a 3xx answer is a permanent failure. 2xx counts as delivered, 4xx other than 408 and 429 as a permanent failure; a transport error, 408, 429 and 5xx are retried (4 attempts by default, 10 s, 60 s and 300 s apart).
          */
         post: operations["createAlertRule"];
         delete?: never;
@@ -505,6 +505,11 @@ export interface components {
             enabled: boolean;
             /** Format: uuid */
             id: string;
+            /**
+             * Format: date-time
+             * @description Time of the newest alert event of this rule; null if it never fired.
+             */
+            lastTriggeredAt: string | null;
             /** Format: uuid */
             metricId: string;
             /** @description Name of the metric. */
@@ -522,9 +527,14 @@ export interface components {
              * @enum {string|null}
              */
             operator: "GT" | "GTE" | "LT" | "LTE" | null;
+            /**
+             * Format: uuid
+             * @description Id of the service that owns the metric.
+             */
+            serviceId: string;
             /** @description Name of the service that owns the metric. */
             serviceName: string;
-            /** @description Webhook URL or e-mail label. Only visible to authenticated users of the tenant; never written to logs in full. */
+            /** @description Webhook URL or e-mail label. Only visible to authenticated users of the tenant; never written to logs in full. For VIEWER users the target of a WEBHOOK rule is masked to its host (`https://hooks.example.com/***`); OWNER and ADMIN see the full URL. */
             target: string;
             /**
              * Format: double
