@@ -84,11 +84,9 @@ public final class AddressClassifier {
             if (allZero(b, 4, 12)) {
                 return blockedV4(b, 12, allowPrivate); // 64:ff9b::/96 NAT64, RFC 6052: the IPv4 address is last
             }
-            if (b[4] == 0 && b[5] == 1) {
-                // 64:ff9b:1::/48 local-use NAT64: RFC 6052 puts the IPv4 address in bits 48-63 and 72-87.
-                byte[] embedded = {b[6], b[7], b[9], b[10]};
-                return blockedV4(embedded, 0, allowPrivate);
-            }
+            // 64:ff9b:1::/48 local-use NAT64 (RFC 8215): prefixes of /48 to /96 embed the IPv4 address at
+            // different offsets (RFC 6052 2.2) and the prefix length is unknown here. No public webhook target
+            // lives there, so everything else under 64:ff9b::/32 is refused instead of guessing the address.
             return true;
         }
         if (isatapBlocked(b, allowPrivate)) {
@@ -117,7 +115,7 @@ public final class AddressClassifier {
 
     /** An ISATAP address embeds an IPv4 address in its interface identifier; it is judged by that address. */
     private static boolean isatapBlocked(byte[] b, boolean allowPrivate) {
-        boolean marker = b[8] == 0 && (b[9] == 0 || (b[9] & 0xff) == 0x02) && (b[10] & 0xff) == 0x5e
+        boolean marker = (b[8] == 0 || b[8] == 0x02) && b[9] == 0 && (b[10] & 0xff) == 0x5e
                 && (b[11] & 0xff) == 0xfe;
         return marker && blockedV4(b, 12, allowPrivate);
     }

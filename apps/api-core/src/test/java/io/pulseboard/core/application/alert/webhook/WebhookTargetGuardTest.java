@@ -243,6 +243,32 @@ class WebhookTargetGuardTest {
     }
 
     @Test
+    void isatapAddressesAreJudgedByTheirEmbeddedIpv4InBothInterfaceIdentifierForms() throws Exception {
+        // RFC 5214 6.1: interface identifier 0000:5efe or 0200:5efe followed by the IPv4 address.
+        for (String literal : List.of("2001:4860:4860:0:0:5efe:a00:1", "2001:4860:4860:0:200:5efe:a00:1",
+                "2001:4860:4860:0:200:5efe:a9fe:a9fe", "2001:4860:4860:0:0:5efe:c0a8:101")) {
+            WebhookTargetGuard guard = strict(answering(literal));
+            assertThatThrownBy(() -> guard.resolve("https://hooks.example.com/x")).as(literal)
+                    .isInstanceOf(UnsafeWebhookTargetException.class);
+        }
+        assertThat(strict(answering("2001:4860:4860:0:200:5efe:808:808")).resolve("https://hooks.example.com/x")
+                .addresses()).as("public embedded IPv4").hasSize(1);
+    }
+
+    @Test
+    void theLocalUseNat64BlockIsRefusedWhileTheWellKnownPrefixIsJudgedByItsIpv4() throws Exception {
+        for (String literal : List.of("64:ff9b:1::a00:1", "64:ff9b:1:0:0:a00:0:1", "64:ff9b:1:a00:1::",
+                "64:ff9b:1:0:a:0:100:0", "64:ff9b:1::a9fe:a9fe", "64:ff9b:1:808::a00:1", "64:ff9b:1:ffff::1",
+                "64:ff9b:1:0:0:808:808:0", "64:ff9b:2::1")) {
+            WebhookTargetGuard guard = strict(answering(literal));
+            assertThatThrownBy(() -> guard.resolve("https://hooks.example.com/x")).as(literal)
+                    .isInstanceOf(UnsafeWebhookTargetException.class);
+        }
+        assertThat(strict(answering("64:ff9b::808:808")).resolve("https://hooks.example.com/x").addresses())
+                .as("well-known prefix with a public IPv4").hasSize(1);
+    }
+
+    @Test
     void aNameThatDoesNotResolveIsATransientFailure() {
         WebhookTargetGuard unknown = strict(host -> {
             throw new UnknownHostException(host);

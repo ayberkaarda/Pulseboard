@@ -2,11 +2,13 @@ package io.pulseboard.core.application.alert;
 
 import io.pulseboard.core.domain.alert.AlertOutbox;
 import io.pulseboard.core.domain.alert.DueAlert;
+import io.pulseboard.core.domain.tenancy.TenantId;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
@@ -88,30 +90,39 @@ public class AlertDispatchService {
             outcome = DeliveryOutcome.retry("internal error: " + ex.getClass().getSimpleName());
         }
         Instant now = clock.instant();
+        UUID id = alert.eventId();
+        TenantId tenant = alert.tenantId();
+        Instant lease = alert.claimedUntil();
+        boolean applied;
         switch (outcome.kind()) {
             case SENT -> {
-                outbox.markSent(alert.eventId(), alert.tenantId(), now);
+                applied = outbox.markSent(id, tenant, lease, now);
                 metrics.delivery("sent");
             }
             case FAILED -> {
-                outbox.markFailed(alert.eventId(), alert.tenantId(), outcome.error());
+                applied = outbox.markFailed(id, tenant, lease, outcome.error());
                 metrics.delivery("failed");
             }
             case DEFER -> {
-                outbox.defer(alert.eventId(), alert.tenantId(), outcome.until());
+                applied = outbox.defer(id, tenant, lease, outcome.until());
                 metrics.delivery("deferred");
             }
             case RETRY -> {
                 if (alert.attempts() >= policy.maxAttempts()) {
-                    outbox.markFailed(alert.eventId(), alert.tenantId(), outcome.error());
+                    applied = outbox.markFailed(id, tenant, lease, outcome.error());
                     metrics.delivery("failed");
                 } else {
-                    outbox.reschedule(alert.eventId(), alert.tenantId(),
-                            now.plus(policy.backoffAfter(alert.attempts())), outcome.error());
+                    applied = outbox.reschedule(id, tenant, lease, now.plus(policy.backoffAfter(alert.attempts())),
+                            outcome.error());
                     metrics.delivery("retry");
                 }
             }
             default -> throw new IllegalStateException("Unhandled outcome " + outcome.kind());
+        }
+        if (!applied) {
+            LOG.warn("Alert delivery result ignored, the claim was superseded: event={} tenant={} attempt={}",
+                    alert.eventId(), alert.tenantId(), alert.attempts());
+            return;
         }
         LOG.info("Alert delivery: event={} tenant={} channel={} attempt={} outcome={}", alert.eventId(),
                 alert.tenantId(), alert.channel(), alert.attempts(), outcome.kind());

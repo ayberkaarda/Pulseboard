@@ -20,14 +20,22 @@ public interface AlertOutbox {
      */
     List<DueAlert> claimDue(Instant now, Instant leaseUntil, int limit, int maxAttempts);
 
-    void markSent(UUID eventId, TenantId tenantId, Instant at);
+    /**
+     * Records the result of a delivery. Every result method applies only while the caller still owns the claim: the
+     * event must be PENDING and leased until exactly {@code claimedUntil}, the value {@link DueAlert#claimedUntil()}
+     * carried out of {@link #claimDue}. A worker whose lease ran out and whose event was claimed again therefore
+     * changes nothing.
+     *
+     * @return whether the result was applied; {@code false} when the claim was superseded or the event is final
+     */
+    boolean markSent(UUID eventId, TenantId tenantId, Instant claimedUntil, Instant at);
 
     /** Gives up on the event; {@code error} is stored as given and must already be sanitised. */
-    void markFailed(UUID eventId, TenantId tenantId, String error);
+    boolean markFailed(UUID eventId, TenantId tenantId, Instant claimedUntil, String error);
 
     /** Keeps the event PENDING, due again at {@code next}. */
-    void reschedule(UUID eventId, TenantId tenantId, Instant next, String error);
+    boolean reschedule(UUID eventId, TenantId tenantId, Instant claimedUntil, Instant next, String error);
 
     /** Puts a claimed event back without counting the attempt, due again at {@code next}. */
-    void defer(UUID eventId, TenantId tenantId, Instant next);
+    boolean defer(UUID eventId, TenantId tenantId, Instant claimedUntil, Instant next);
 }

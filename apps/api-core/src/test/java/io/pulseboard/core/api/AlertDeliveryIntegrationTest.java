@@ -8,6 +8,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.github.tomakehurst.wiremock.stubbing.Scenario;
 import io.pulseboard.core.api.alert.AlertDtos.AlertRuleResponse;
 import io.pulseboard.core.domain.alert.AlertOutbox;
+import io.pulseboard.core.domain.tenancy.TenantId;
 import io.pulseboard.core.support.AlertIntegrationTest;
 import io.pulseboard.core.support.WebhookReceiver;
 import java.time.Duration;
@@ -63,18 +64,27 @@ class AlertDeliveryIntegrationTest extends AlertIntegrationTest {
                 .whenScenarioStateIs("recovered").willReturn(aResponse().withStatus(200)));
         UUID eventId = insertEvent(hook.tenant(), hook.rule().id());
 
+        Instant firstStart = Instant.now();
         assertThat(dispatchService.dispatchDue()).isGreaterThanOrEqualTo(1);
+        Instant firstEnd = Instant.now();
 
         Map<String, Object> afterFirst = row(eventId);
         assertThat(afterFirst.get("delivery_status")).isEqualTo("PENDING");
         assertThat(afterFirst.get("attempts")).isEqualTo(1);
         assertThat(afterFirst.get("last_error")).isEqualTo("HTTP 503");
         assertThat(afterFirst.get("claimed_until")).as("the claim is released").isNull();
-        assertThat(((java.sql.Timestamp) afterFirst.get("next_attempt_at")).toInstant())
-                .as("rescheduled with the backoff").isAfter(Instant.now().plusMillis(300));
-        // Not due yet: another poll leaves it alone.
+        // The backoff is measured from the moment the result was recorded, which lies inside the dispatch call:
+        // bounds taken around the call hold however slow the scheduler is.
+        Instant next = ((java.sql.Timestamp) afterFirst.get("next_attempt_at")).toInstant();
+        Duration backoff = alertProperties.dispatcher().backoff().getFirst();
+        assertThat(next).as("rescheduled with the backoff")
+                .isAfterOrEqualTo(firstStart.plus(backoff).truncatedTo(java.time.temporal.ChronoUnit.MILLIS))
+                .isBeforeOrEqualTo(firstEnd.plus(backoff).plusMillis(1));
+        // Not due yet: another poll leaves it alone. Only checked when the poll certainly ran before it was due.
         dispatchService.dispatchDue();
-        assertThat(requests(hook.path())).hasSize(1);
+        if (Instant.now().isBefore(next)) {
+            assertThat(requests(hook.path())).hasSize(1);
+        }
 
         dispatchUntil(() -> "SENT".equals(status(eventId)));
 
@@ -309,6 +319,41 @@ class AlertDeliveryIntegrationTest extends AlertIntegrationTest {
         assertThat(lines).hasSize(1);
         assertThat(lines.getFirst()).contains("event=" + eventId).contains("to=\"ops@example.com\"")
                 .contains("rule=\"mail rule\"").contains("tenant=" + tenant.tenantId());
+    }
+
+    @Test
+    void aWorkerWhoseLeaseWasTakenOverCannotChangeTheNewClaimsEvent() {
+        Hook hook = hook();
+        UUID eventId = insertEvent(hook.tenant(), hook.rule().id());
+        TenantId tenantId = TenantId.of(hook.tenant().tenantId());
+        Instant now = Instant.now();
+        var stale = outbox.claimDue(now, now.plusSeconds(60), 1000, 4).stream()
+                .filter(due -> due.eventId().equals(eventId)).findFirst().orElseThrow();
+        // The first worker hangs; its lease runs out and a second worker claims the same event.
+        jdbc.update("UPDATE alert_event SET claimed_until = ? WHERE id = ?",
+                java.sql.Timestamp.from(Instant.now().minusSeconds(1)), eventId);
+        Instant later = Instant.now();
+        var current = outbox.claimDue(later, later.plusSeconds(120), 1000, 4).stream()
+                .filter(due -> due.eventId().equals(eventId)).findFirst().orElseThrow();
+        assertThat(current.claimedUntil()).isNotEqualTo(stale.claimedUntil());
+        Map<String, Object> before = row(eventId);
+        assertThat(before.get("attempts")).isEqualTo(2);
+
+        Instant soon = Instant.now().plusSeconds(5);
+        assertThat(outbox.markSent(eventId, tenantId, stale.claimedUntil(), Instant.now())).isFalse();
+        assertThat(outbox.markFailed(eventId, tenantId, stale.claimedUntil(), "late")).isFalse();
+        assertThat(outbox.reschedule(eventId, tenantId, stale.claimedUntil(), soon, "late")).isFalse();
+        assertThat(outbox.defer(eventId, tenantId, stale.claimedUntil(), soon)).isFalse();
+
+        assertThat(row(eventId)).as("the stale worker changed nothing").isEqualTo(before);
+        assertThat(outbox.defer(eventId, tenantId, current.claimedUntil(), soon)).as("the owner may").isTrue();
+        assertThat(row(eventId).get("attempts")).isEqualTo(1);
+        // A stale result for an event that was meanwhile finished by its owner is ignored as well.
+        var third = outbox.claimDue(soon.plusSeconds(1), soon.plusSeconds(100), 1000, 4).stream()
+                .filter(due -> due.eventId().equals(eventId)).findFirst().orElseThrow();
+        assertThat(outbox.markSent(eventId, tenantId, third.claimedUntil(), Instant.now())).isTrue();
+        assertThat(outbox.markFailed(eventId, tenantId, third.claimedUntil(), "again")).isFalse();
+        assertThat(status(eventId)).isEqualTo("SENT");
     }
 
     @Test

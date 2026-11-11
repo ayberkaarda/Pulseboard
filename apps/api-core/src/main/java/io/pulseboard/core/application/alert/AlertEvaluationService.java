@@ -45,6 +45,8 @@ import org.springframework.stereotype.Service;
 public class AlertEvaluationService {
 
     private static final Logger LOG = LoggerFactory.getLogger(AlertEvaluationService.class);
+    /** Matches that may be looked at per allowed firing, per tenant and notification. */
+    private static final int LOOKED_PER_FIRE = 10;
 
     private final AlertRuleCache ruleCache;
     private final AlertRuleRepository ruleRepository;
@@ -134,7 +136,9 @@ public class AlertEvaluationService {
      * what is bounded is the work that follows a match, the {@code fire} calls (cooldown store, budget, insert), per
      * tenant and notification. Rules are loaded once per tenant and metric, and the anomalies are visited by
      * severity, highest first, so that in the unlikely event of the cap being hit the most severe ones were handled.
-     * The cap counts only rules that matched. The skipped count is logged once.
+     * The firing limit counts matches that created an event; suppressed ones (cooldown, duplicate) only count
+     * against a hard cap of {@value #LOOKED_PER_FIRE} times that many matches visited. The skipped count is logged
+     * once.
      */
     private void evaluateAnomalies(Collection<Anomaly> anomalies) {
         Map<TenantId, Set<UUID>> metricsByTenant = new LinkedHashMap<>();
@@ -153,8 +157,10 @@ public class AlertEvaluationService {
         List<Anomaly> ordered = new ArrayList<>(anomalies);
         ordered.sort(Comparator.comparing(Anomaly::severity).reversed());
         Map<TenantId, Integer> fired = new HashMap<>();
+        Map<TenantId, Integer> looked = new HashMap<>();
         Map<TenantId, Integer> skipped = new HashMap<>();
         int firesPerTenant = policy.maxRulesPerBatch() * 5;
+        int lookedPerTenant = firesPerTenant * LOOKED_PER_FIRE;
         for (Anomaly anomaly : ordered) {
             List<AlertRule> candidates = rules.getOrDefault(anomaly.tenantId(), Map.of())
                     .getOrDefault(anomaly.metricId(), List.of());
@@ -163,7 +169,12 @@ public class AlertEvaluationService {
                 if (rule.minSeverity() == null || anomaly.severity().compareTo(rule.minSeverity()) < 0) {
                     continue;
                 }
-                if (fired.merge(anomaly.tenantId(), 1, Integer::sum) > firesPerTenant) {
+                // Two limits. Matches visited is the hard cap on the work (each one costs a cooldown lookup at
+                // most). The firing limit counts only matches that created an event: a rule that the cooldown or
+                // the duplicate check suppressed leaves nothing behind, so it must not use up the allowance and
+                // starve the valid alerts of other metrics that come after it.
+                if (looked.merge(anomaly.tenantId(), 1, Integer::sum) > lookedPerTenant
+                        || fired.getOrDefault(anomaly.tenantId(), 0) >= firesPerTenant) {
                     skipped.merge(anomaly.tenantId(), 1, Integer::sum);
                     continue;
                 }
@@ -175,7 +186,9 @@ public class AlertEvaluationService {
                 details.put("anomalyId", anomaly.id().toString());
                 details.put("windowStart", anomaly.windowStart().toString());
                 details.put("windowEnd", anomaly.windowEnd().toString());
-                guarded(rule, anomaly.id().toString(), details);
+                if (guarded(rule, anomaly.id().toString(), details)) {
+                    fired.merge(anomaly.tenantId(), 1, Integer::sum);
+                }
             }
         }
         if (!skipped.isEmpty()) {
@@ -187,12 +200,13 @@ public class AlertEvaluationService {
     }
 
     /** One rule failing (for example a database error on its insert) does not stop the others. */
-    private void guarded(AlertRule rule, String sourceRef, Map<String, Object> details) {
+    private boolean guarded(AlertRule rule, String sourceRef, Map<String, Object> details) {
         try {
-            triggerService.fire(rule, sourceRef, details);
+            return triggerService.fire(rule, sourceRef, details);
         } catch (RuntimeException ex) {
             metrics.evaluationError();
             LOG.warn("Firing an alert rule failed: rule={} tenant={}", rule.id(), rule.tenantId(), ex);
+            return false;
         }
     }
 }

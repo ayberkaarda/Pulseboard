@@ -61,48 +61,52 @@ public class JdbcAlertOutbox implements AlertOutbox {
                   FROM due, alert_rule r
                  WHERE e.id = due.id AND r.id = e.rule_id AND r.tenant_id = e.tenant_id
                 RETURNING e.id, e.tenant_id, e.rule_id, r.name AS rule_name, r.enabled, r.channel, r.target,
-                          e.payload::text AS payload, e.attempts
+                          e.payload::text AS payload, e.attempts, e.claimed_until
                 """, this::mapRow, current, current, limit, utc(leaseUntil));
     }
 
     @Override
     @Transactional
-    public void markSent(UUID eventId, TenantId tenantId, Instant at) {
-        jdbcTemplate.update("""
+    public boolean markSent(UUID eventId, TenantId tenantId, Instant claimedUntil, Instant at) {
+        return jdbcTemplate.update("""
                 UPDATE alert_event
                    SET delivery_status = 'SENT', delivered_at = ?, claimed_until = NULL, last_error = NULL
                  WHERE id = ? AND tenant_id = ? AND delivery_status = 'PENDING'
-                """, utc(at), eventId, tenantId.value());
+                   AND claimed_until = ?
+                """, utc(at), eventId, tenantId.value(), utc(claimedUntil)) > 0;
     }
 
     @Override
     @Transactional
-    public void markFailed(UUID eventId, TenantId tenantId, String error) {
-        jdbcTemplate.update("""
+    public boolean markFailed(UUID eventId, TenantId tenantId, Instant claimedUntil, String error) {
+        return jdbcTemplate.update("""
                 UPDATE alert_event
                    SET delivery_status = 'FAILED', claimed_until = NULL, last_error = ?
                  WHERE id = ? AND tenant_id = ? AND delivery_status = 'PENDING'
-                """, error, eventId, tenantId.value());
+                   AND claimed_until = ?
+                """, error, eventId, tenantId.value(), utc(claimedUntil)) > 0;
     }
 
     @Override
     @Transactional
-    public void reschedule(UUID eventId, TenantId tenantId, Instant next, String error) {
-        jdbcTemplate.update("""
+    public boolean reschedule(UUID eventId, TenantId tenantId, Instant claimedUntil, Instant next, String error) {
+        return jdbcTemplate.update("""
                 UPDATE alert_event
                    SET next_attempt_at = ?, claimed_until = NULL, last_error = ?
                  WHERE id = ? AND tenant_id = ? AND delivery_status = 'PENDING'
-                """, utc(next), error, eventId, tenantId.value());
+                   AND claimed_until = ?
+                """, utc(next), error, eventId, tenantId.value(), utc(claimedUntil)) > 0;
     }
 
     @Override
     @Transactional
-    public void defer(UUID eventId, TenantId tenantId, Instant next) {
-        jdbcTemplate.update("""
+    public boolean defer(UUID eventId, TenantId tenantId, Instant claimedUntil, Instant next) {
+        return jdbcTemplate.update("""
                 UPDATE alert_event
                    SET next_attempt_at = ?, claimed_until = NULL, attempts = GREATEST(attempts - 1, 0)
                  WHERE id = ? AND tenant_id = ? AND delivery_status = 'PENDING'
-                """, utc(next), eventId, tenantId.value());
+                   AND claimed_until = ?
+                """, utc(next), eventId, tenantId.value(), utc(claimedUntil)) > 0;
     }
 
     private DueAlert mapRow(ResultSet rs, int rowNum) throws SQLException {
@@ -115,7 +119,8 @@ public class JdbcAlertOutbox implements AlertOutbox {
                 AlertChannel.valueOf(rs.getString("channel")),
                 rs.getString("target"),
                 parsePayload(rs.getString("payload")),
-                rs.getInt("attempts"));
+                rs.getInt("attempts"),
+                rs.getObject("claimed_until", OffsetDateTime.class).toInstant());
     }
 
     private Map<String, Object> parsePayload(String json) {
