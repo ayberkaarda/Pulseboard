@@ -15,7 +15,14 @@ Captured from the running stack with demo data. The app follows the system colou
 | <img src="../../docs/images/overview-light.png" alt="Overview, light" width="300"> | <img src="../../docs/images/anomalies-light.png" alt="Anomalies, light" width="300"> | <img src="../../docs/images/metric-light.png" alt="Metric chart, light" width="300"> |
 | <img src="../../docs/images/overview-dark.png" alt="Overview, dark" width="300">   | <img src="../../docs/images/anomalies-dark.png" alt="Anomalies, dark" width="300">   | <img src="../../docs/images/metric-dark.png" alt="Metric chart, dark" width="300">   |
 
-More captures (mobile, sign in) are in the [root README](../../README.md#screenshots).
+Alerts (rules, editor with a webhook address hint, delivery history):
+
+| Rules                                                                                    | Editor                                                                                          | History                                                                                      |
+| ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| <img src="../../docs/images/alert-rules-light.png" alt="Alert rules, light" width="300"> | <img src="../../docs/images/alert-editor-light.png" alt="Alert rule editor, light" width="300"> | <img src="../../docs/images/alert-history-light.png" alt="Alert history, light" width="300"> |
+| <img src="../../docs/images/alert-rules-dark.png" alt="Alert rules, dark" width="300">   | <img src="../../docs/images/alert-editor-dark.png" alt="Alert rule editor, dark" width="300">   | <img src="../../docs/images/alert-history-dark.png" alt="Alert history, dark" width="300">   |
+
+More captures (event details, Grafana, mobile, sign in) are in the [root README](../../README.md#screenshots).
 
 ## Requirements
 

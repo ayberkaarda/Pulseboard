@@ -15,7 +15,14 @@ Demo verisiyle çalışan ortamdan alınmıştır. Uygulama sistemin renk şemas
 | <img src="../../docs/images/overview-light.png" alt="Genel bakış, açık tema" width="300"> | <img src="../../docs/images/anomalies-light.png" alt="Anomaliler, açık tema" width="300"> | <img src="../../docs/images/metric-light.png" alt="Metrik grafiği, açık tema" width="300"> |
 | <img src="../../docs/images/overview-dark.png" alt="Genel bakış, koyu tema" width="300">  | <img src="../../docs/images/anomalies-dark.png" alt="Anomaliler, koyu tema" width="300">  | <img src="../../docs/images/metric-dark.png" alt="Metrik grafiği, koyu tema" width="300">  |
 
-Daha fazla görüntü (mobil, giriş) [kök README](../../README.tr.md#ekran-görüntüleri) içindedir.
+Alarmlar (kurallar, webhook adresi ipucu gösteren düzenleyici, teslim geçmişi):
+
+| Kurallar                                                                                         | Düzenleyici                                                                                                  | Geçmiş                                                                                           |
+| ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------ |
+| <img src="../../docs/images/alert-rules-light.png" alt="Alarm kuralları, açık tema" width="300"> | <img src="../../docs/images/alert-editor-light.png" alt="Alarm kuralı düzenleyicisi, açık tema" width="300"> | <img src="../../docs/images/alert-history-light.png" alt="Alarm geçmişi, açık tema" width="300"> |
+| <img src="../../docs/images/alert-rules-dark.png" alt="Alarm kuralları, koyu tema" width="300">  | <img src="../../docs/images/alert-editor-dark.png" alt="Alarm kuralı düzenleyicisi, koyu tema" width="300">  | <img src="../../docs/images/alert-history-dark.png" alt="Alarm geçmişi, koyu tema" width="300">  |
+
+Daha fazla görüntü (olay ayrıntısı, Grafana, mobil, giriş) [kök README](../../README.tr.md#ekran-görüntüleri) içindedir.
 
 ## Gereksinimler
 
