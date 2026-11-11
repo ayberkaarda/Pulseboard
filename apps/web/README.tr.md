@@ -2,7 +2,7 @@
 
 [English](README.md) | Türkçe
 
-Pulseboard için Angular 22 tek sayfa uygulaması: standalone bileşenler, signal'ler, zoneless değişiklik algılama ve katı (strict) TypeScript. Bir çalışma alanındaki her servisi sağlık kutucuğu olarak gösterir, anomalileri canlı listeler, bir metriği anomali işaretleriyle çizer ve anomalilerin onaylanmasını sağlar.
+Pulseboard için Angular 22 tek sayfa uygulaması: standalone bileşenler, signal'ler, zoneless değişiklik algılama ve katı (strict) TypeScript. Bir çalışma alanındaki her servisi sağlık kutucuğu olarak gösterir, anomalileri canlı listeler, bir metriği anomali işaretleriyle çizer, anomalilerin onaylanmasını sağlar ve uyarı kurallarını teslim geçmişleriyle birlikte yönetir.
 
 Görsel kimlik, tasarım token'ları, temalandırma ve ekran yerleşimleri [DESIGN.md](DESIGN.md) dosyasında belgelenmiştir (İngilizce).
 
@@ -33,7 +33,7 @@ Daha fazla görüntü (mobil, giriş) [kök README](../../README.tr.md#ekran-gö
 | `npm run api:generate`                    | `src/app/api/generated/schema.d.ts` dosyasını `contracts/api-core.openapi.yaml` içinden yeniden yazar.                                                                        |
 | `npm run api:check`                       | Depodaki şema, yeni üretilenden farklıysa başarısız olur (CI sapma denetimi).                                                                                                 |
 | `npm run typecheck`                       | Uygulama ve spec dosyaları üzerinde `tsc --noEmit` (Jest builder tip denetimi yapmaz).                                                                                        |
-| `node scripts/browser-audit.mjs`          | Çalışan ortamın sayfalarında axe-core taraması (açık ve koyu tema); `BASE` ortamın adresidir. Sistemde Chrome gerekir.                                                        |
+| `node scripts/browser-audit.mjs`          | Çalışan ortamın sayfalarında (uyarı sayfaları dahil) axe-core taraması (açık ve koyu tema); `BASE` ortamın adresidir. Sistemde Chrome gerekir.                                |
 
 `scripts/browser-audit.mjs` ayrıca `VIEWPORT_WIDTH` değerini okur (dar yerleşim için örneğin 390). `SHOT_DIR` verilirse her tarama için `SHOT_PREFIX-scheme-page.png` adıyla tam sayfa ekran görüntüsü yazar.
 
@@ -43,12 +43,12 @@ Daha fazla görüntü (mobil, giriş) [kök README](../../README.tr.md#ekran-gö
 src/app/
   api/        generated/schema.d.ts üzerinde tiplenmiş ApiClient (salt okunur), problem+json çözümleme
   core/       oturum deposu, HTTP interceptor'lar, guard'lar, dönüş URL kuralları, snackbar bildirimcisi
-  features/   auth (giriş, kayıt), overview, service-detail, metric-detail, anomalies, servis deposu
+  features/   auth (giriş, kayıt), overview, service-detail, metric-detail, anomalies, alerts (kurallar, düzenleyici, geçmiş), servis deposu
   shell/      oturum açıkken kullanılan yerleşim (rail, drawer, skip link)
-  shared/     glifler, ikonlar, sayfa başlığı
+  shared/     glifler, ikonlar, sayfa başlığı, onay penceresi
 ```
 
-Rotalar tembel (lazy) ve standalone'dır: `/login`, `/register`, `/app/overview`, `/app/services/:id`, `/app/metrics/:id`, `/app/anomalies` ve diğer her şey için bir "bulunamadı" sayfası.
+Rotalar tembel (lazy) ve standalone'dır: `/login`, `/register`, `/app/overview`, `/app/services/:id`, `/app/metrics/:id`, `/app/anomalies`, `/app/alerts` (kurallara yönlendirir), `/app/alerts/rules`, `/app/alerts/history`, `/app/alerts/rules/new`, `/app/alerts/rules/:id` ve diğer her şey için bir "bulunamadı" sayfası.
 
 ## Canlı veri ve grafikler
 
@@ -57,9 +57,18 @@ Rotalar tembel (lazy) ve standalone'dır: `/login`, `/register`, `/app/overview`
 - **Genel bakıştaki sağlık** ürün şartnamesini izler: son bir saatte onaylanmamış anomali yoksa Healthy (daire), LOW veya MEDIUM varsa Degraded (üçgen), HIGH varsa Down (kare); metriği olmayan ya da anomalileri okunamayan servis "No data" gösterir. En yeni örneği (`lastPointAt`) 15 dakikadan eski olan ve açık anomalisi bulunmayan servis "Stale" (saat halkası) olur, asla healthy görünmez; o saate uyan anomali sayısı 500'ü aşarsa, yüklenmiş anomalisi olmayan servisler healthy yerine "No data" gösterir. 401 alan bir istek, yalnızca oturum kimliği (çıkış, başka bir giriş) değişmemişse yenilemeden sonra yeniden gönderilir; aksi halde iptal hatasıyla biter ve başka birinin token'ı ile asla gönderilmez.
 - **Grafik.** ECharts yalnızca `metric-chart.component.ts` tarafından dinamik import ile yüklenir (kendi parçası, metrik sayfasında yüklenir). `chart-options.ts`, veri ve tasarım token'larından grafik seçeneğini üreten saf bir fonksiyondur; token'lar tarayıcıda çözülür (`chart-tokens.ts`) ve tema veya hareket tercihi değiştiğinde seçenek yeniden kurulur. Grafik `role="img"` ve metin özeti taşır; sayfa değerleri ayrıca metin ve tablo olarak tekrar eder. Beklenen aralık bandı çizilmez: API böyle bir veri sunmaz.
 
+## Uyarılar
+
+`AlertRulesStore` ve `AlertHistoryStore` (`features/alerts` içinde) diğer depoları izler: yükleniyor, hata ve boş durumları, istek başına switchMap, çıkıştan sonra gelen yanıtları atan bir epoch ve `SessionLifecycle` ile sıfırlama.
+
+- **Kurallar** (`/app/alerts/rules`). Sahipler ve yöneticiler kural oluşturabilir, düzenleyebilir, silebilir ve açıp kapatabilir; diğer roller açıklamalı salt okunur bir liste görür ve bu kontroller hiç üretilmez. Açıp kapatma ve silme iyimser (optimistic) çalışır, sunucu reddederse geri alınır. Her değişiklik, başladığı `version` değerini taşır. Sürüm çakışması (veya kaybolmuş bir kural) hiçbir şeyin üzerine yazmaz: liste olduğu gibi kalır ve bir bildirim yeniden yüklemeyi önerir; düzenleyici yapılan değişiklikleri ekranda tutar ve en son sürümü yüklemeyi önerir (bu, değişiklikleri atar). Bir değişiklik bitmeden önce istenmiş bir liste yanıtı atılır ve yeniden istenir. Kural sınırı (`alert-rule-limit`) ve kullanılmış ad (`conflict`) kendi iletilerine sahiptir. Webhook kurallarının hedefi listelerde yalnızca ana makine adı olarak gösterilir.
+- **Düzenleyici** (`/app/alerts/rules/new`, `/:id`). Tipli reactive form (doğrulayıcılar, dinamik alanlar ve istek oluşturucular `alert-rule-form.ts` içinde düz fonksiyonlardır). Eşik kuralı operatörü ve metriğin birimiyle değeri gösterir; anomali kuralı önem glifleriyle en düşük önem düzeyini gösterir. Seçilmeyen koşulun alanları gizlenmez, kaldırılır ve nazik bir durum satırı neyin göründüğünü bildirir; kanalı değiştirmek hedefi temizler. Webhook adresi tarayıcıda yalnızca ipucu olarak denetlenir (https, kullanıcı bilgisi yok, IP adresi yok, localhost veya iç ağ adı yok); karar sunucunundur ve sunucunun alan iletileri (`errors[]`, JSON pointer veya bean yolu) kontrole yerleştirilip `aria-describedby` ile bağlanır. Adres yalnızca formda yaşar: asla saklanmaz veya günlüğe yazılmaz. Değişiklik içeren bir formdan ayrılmadan önce sorulur (`canDeactivate`).
+- **Geçmiş** (`/app/alerts/history`). Sunucu tarafında sayfalama (sayfada 25), kural, durum ve tarih aralığı filtreleri (yerel günler; bitiş günü dahildir), en yeni önce. Durum glif ve sözcüktür (bekliyor, gönderildi, başarısız; sinyal anahtarında listelenir). "Details" düğmesi, yükü düzenli yazılmış metin olarak yana kayan bir `<pre>` içinde ve kopyalama düğmesiyle gösteren bir pencere açar; sunucudan gelen her şey, son hata dahil, yalnızca metin olarak yazılır. Bir şey beklemedeyken ve sekme görünürken liste 30 saniyede bir kendini yeniler; aksi halde hiçbir şey sorgulanmaz. `/app/alerts/history?ruleId=...` tek bir kuralın geçmişini açar (kurallar listesi buraya bağlanır).
+- Sunucu WEBHOOK kurallarını yalnızca `ALERT_WEBHOOK_SIGNING_SECRET` tanımlıyken kabul eder; tanımsızsa böyle bir kuralı kaydetmek kanal alanında bir iletiyle reddedilir. EMAIL_LOG kanalı kurulum gerektirmez (uyarı api-core günlüğüne yazılır).
+
 ## Erişilebilirlik ve Lighthouse
 
-`node scripts/browser-audit.mjs`, çalışan ortamda geçici bir çalışma alanı kaydeder, analytics servisinin anomali üretmesini bekler ve her sayfayı iki renk şemasında axe-core ile tarar. Lighthouse CI `lighthouserc.json` içinde yapılandırılmıştır (`/login` ve `/register` için erişilebilirlik en az 0,9): `npm run build && npx @lhci/cli autorun`.
+`node scripts/browser-audit.mjs`, çalışan ortamda geçici bir çalışma alanı kaydeder, iki uyarı kuralı oluşturur, analytics servisinin anomali üretmesini ve ilk uyarının teslim edilmesini bekler ve her sayfayı (uyarı sayfaları, iki koşul için kural düzenleyici, silme onayı ve olay penceresi dahil) iki renk şemasında axe-core ile tarar. Lighthouse CI `lighthouserc.json` içinde yapılandırılmıştır (`/login` ve `/register` için erişilebilirlik en az 0,9): `npm run build && npx @lhci/cli autorun`.
 
 ## API istemcisi
 

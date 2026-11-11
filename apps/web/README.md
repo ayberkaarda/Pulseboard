@@ -2,7 +2,7 @@
 
 English | [Türkçe](README.tr.md)
 
-Angular 22 single-page application for Pulseboard: standalone components, signals, zoneless change detection, strict TypeScript. It shows every service of a workspace as a health tile, lists anomalies live, charts a metric with anomaly markers and lets people acknowledge anomalies.
+Angular 22 single-page application for Pulseboard: standalone components, signals, zoneless change detection, strict TypeScript. It shows every service of a workspace as a health tile, lists anomalies live, charts a metric with anomaly markers, lets people acknowledge anomalies and manage alert rules with their delivery history.
 
 Visual identity, tokens, theming and screen layouts are documented in [DESIGN.md](DESIGN.md).
 
@@ -33,7 +33,7 @@ More captures (mobile, sign in) are in the [root README](../../README.md#screens
 | `npm run api:generate`                    | Rewrites `src/app/api/generated/schema.d.ts` from `contracts/api-core.openapi.yaml`.                                                   |
 | `npm run api:check`                       | Fails when the checked-in schema differs from a fresh generation (CI drift check).                                                     |
 | `npm run typecheck`                       | `tsc --noEmit` over the app and the specs (the Jest builder does not type check).                                                      |
-| `node scripts/browser-audit.mjs`          | axe-core scan (light and dark) of the pages of a running stack; `BASE` is its origin. Needs system Chrome.                             |
+| `node scripts/browser-audit.mjs`          | axe-core scan (light and dark) of the pages of a running stack, alert pages included; `BASE` is its origin. Needs system Chrome.       |
 
 `scripts/browser-audit.mjs` also reads `VIEWPORT_WIDTH` (for example 390 for the narrow layout) and, when `SHOT_DIR` is set, writes a full-page screenshot per scan named `SHOT_PREFIX-scheme-page.png`.
 
@@ -43,12 +43,12 @@ More captures (mobile, sign in) are in the [root README](../../README.md#screens
 src/app/
   api/        typed ApiClient over generated/schema.d.ts (read-only), problem+json decoding
   core/       session store, HTTP interceptors, guards, return URL rules, snackbar notifier
-  features/   auth (login, register), overview, service-detail, metric-detail, anomalies, services store
+  features/   auth (login, register), overview, service-detail, metric-detail, anomalies, alerts (rules, editor, history), services store
   shell/      signed-in layout (rail, drawer, skip link)
-  shared/     glyphs, icons, page head
+  shared/     glyphs, icons, page head, confirm dialog
 ```
 
-Routes are lazy and standalone: `/login`, `/register`, `/app/overview`, `/app/services/:id`, `/app/metrics/:id`, `/app/anomalies`, and a not-found page for everything else.
+Routes are lazy and standalone: `/login`, `/register`, `/app/overview`, `/app/services/:id`, `/app/metrics/:id`, `/app/anomalies`, `/app/alerts` (redirects to the rules), `/app/alerts/rules`, `/app/alerts/history`, `/app/alerts/rules/new`, `/app/alerts/rules/:id`, and a not-found page for everything else.
 
 ## Live data and charts
 
@@ -57,9 +57,18 @@ Routes are lazy and standalone: `/login`, `/register`, `/app/overview`, `/app/se
 - **Health on the overview** follows the product spec: no unacknowledged anomaly in the last hour is healthy (circle), LOW or MEDIUM is degraded (triangle), HIGH is down (square); a service with no metrics, or whose anomalies could not be read, shows "No data". A service whose newest sample (`lastPointAt`) is older than 15 minutes (`STALE_AFTER_MS`) and has no open anomaly is "Stale" (clock ring), never healthy; when more than 500 anomalies match the hour, services without a loaded anomaly show "No data" instead of healthy. A request that got a 401 is replayed after a refresh only while the session identity (logout, another sign-in) is unchanged; otherwise it fails with a cancelled error and is never sent with another person's token.
 - **Chart.** ECharts is imported only by `metric-chart.component.ts` through a dynamic import (its own chunk, loaded on the metric page). `chart-options.ts` is a pure function from data and design tokens to the option; tokens are resolved in the browser (`chart-tokens.ts`) and the option is rebuilt when the theme or the motion preference changes. The chart is `role="img"` with a text summary, and the page repeats the numbers as text and as a table. No expected-range band is drawn: the API has none.
 
+## Alerts
+
+`AlertRulesStore` and `AlertHistoryStore` (in `features/alerts`) follow the other stores: loading, error and empty states, a switchMap per request, an epoch that drops answers arriving after logout, reset through `SessionLifecycle`.
+
+- **Rules** (`/app/alerts/rules`). Owners and admins can create, edit, delete and switch rules; every other role gets a read-only list with an explanation, and those controls are not rendered at all. Switching and deleting are optimistic and roll back when the server refuses. Every change carries the `version` it started from. A version conflict (or a rule that vanished) never overwrites anything: the list stays as it was and a notice offers to reload; the editor keeps the edits on screen and offers to load the latest version (which discards them). A list answer that was requested before a change finished is dropped and requested again. The rule limit (`alert-rule-limit`) and a taken name (`conflict`) have their own messages. Targets of webhook rules are listed as the host only.
+- **Editor** (`/app/alerts/rules/new`, `/:id`). Typed reactive form (`alert-rule-form.ts` holds the validators, the dynamic fields and the request builders as plain functions). A threshold rule shows operator and value with the unit of the metric; an anomaly rule shows the minimum severity with the severity glyphs. Fields of the other condition are removed, not hidden, and a polite status line says what appeared; switching the channel clears the target. The webhook address is checked in the browser as a hint only (https, no user info, no IP literal, no localhost or internal names); the server decides, and its field messages (`errors[]`, JSON pointer or bean path) are placed on the control and tied to it with `aria-describedby`. The address lives only in the form: it is never stored or logged. Leaving a form with edits asks first (`canDeactivate`).
+- **History** (`/app/alerts/history`). Server side paging (25 per page), filters for rule, status and date range (local days; the end day is included), newest first. Status is a glyph plus a word (pending, sent, failed; listed in the signal key). "Details" opens a dialog with the payload as pretty printed text in a scrollable `<pre>` and a copy button; everything from the server, the last error included, is interpolated as text only. While something is pending and the tab is visible the list refreshes every 30 seconds; otherwise nothing is polled. `/app/alerts/history?ruleId=...` opens the history of one rule (the rules list links to it).
+- The server accepts WEBHOOK rules only when `ALERT_WEBHOOK_SIGNING_SECRET` is set; without it, saving such a rule is refused with a message on the channel. The EMAIL_LOG channel needs no setup (the alert is written to the api-core log).
+
 ## Accessibility and Lighthouse
 
-`node scripts/browser-audit.mjs` registers a throwaway workspace on a running stack, waits for the analytics service to produce anomalies and scans every page with axe-core in both colour schemes. Lighthouse CI is configured in `lighthouserc.json` (accessibility at least 0.9 on `/login` and `/register`): `npm run build && npx @lhci/cli autorun`.
+`node scripts/browser-audit.mjs` registers a throwaway workspace on a running stack, creates two alert rules, waits for the analytics service to produce anomalies and for the first alert to be delivered, and scans every page (the alert pages, the rule editor for both conditions, the delete confirmation and the event dialog included) with axe-core in both colour schemes. Lighthouse CI is configured in `lighthouserc.json` (accessibility at least 0.9 on `/login` and `/register`): `npm run build && npx @lhci/cli autorun`.
 
 ## API client
 
