@@ -58,6 +58,18 @@
       </div>
     }
 
+    @if (changedSince()) {
+      <div class="problem" role="status">
+        <p>
+          <strong>This rule changed since you opened it.</strong> Saving now is refused rather than
+          overwriting the change.
+        </p>
+        <div class="problem-actions">
+          <button mat-stroked-button type="button" (click)="reloadLatest()">Reload the rule</button>
+        </div>
+      </div>
+    }
+
     @if (formError(); as message) {
       <p class="form-error" role="alert">{{ message }}</p>
     }
@@ -69,7 +81,7 @@
       novalidate
       [attr.aria-busy]="submitting()"
     >
-      <fieldset class="pb-fieldset">
+      <fieldset class="pb-fieldset" [disabled]="submitting()">
         <legend>What to watch</legend>
 
         <mat-form-field appearance="outline">
@@ -119,7 +131,7 @@
         </div>
       </fieldset>
 
-      <fieldset class="pb-fieldset">
+      <fieldset class="pb-fieldset" [disabled]="submitting()">
         <legend>Alert when</legend>
 
         <div class="pb-choices" role="radiogroup" aria-label="Condition">
@@ -186,7 +198,7 @@
         }
       </fieldset>
 
-      <fieldset class="pb-fieldset">
+      <fieldset class="pb-fieldset" [disabled]="submitting()">
         <legend>Notify</legend>
 
         <div class="pb-choices" role="radiogroup" aria-label="Channel">

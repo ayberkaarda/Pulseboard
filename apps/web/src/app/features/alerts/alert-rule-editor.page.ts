@@ -1,7 +1,10 @@
+import { DOCUMENT } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
+  Injector,
+  afterNextRender,
   ElementRef,
   computed,
   effect,
@@ -92,6 +95,7 @@ export class AlertRuleEditorPage implements HasUnsavedChanges {
   private readonly router = inject(Router);
   private readonly notifier = inject(Notifier);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly injector = inject(Injector);
 
   protected readonly ruleId = inject(ActivatedRoute).snapshot.paramMap.get('id');
   protected readonly editing = this.ruleId !== null;
@@ -126,12 +130,21 @@ export class AlertRuleEditorPage implements HasUnsavedChanges {
   /** Said politely when a part of the form appears or changes meaning. */
   protected readonly announcement = signal('');
   private readonly saved = signal(false);
+  /** The version of the rule the form was filled from; a save is based on it, whatever the store holds now. */
+  private readonly baseVersion = signal<number | null>(null);
   private readonly populated = signal(false);
   private populating = false;
 
   protected readonly rule = computed(
     () => this.store.rules().find((entry) => entry.id === this.ruleId) ?? null,
   );
+
+  /** True when the rule in the store moved on (toggle, refresh) after the form was filled. */
+  protected readonly changedSince = computed(() => {
+    const base = this.baseVersion();
+    const rule = this.rule();
+    return this.editing && !this.saved() && base !== null && rule !== null && rule.version !== base;
+  });
 
   /** What the editor shows in the place of the form, if anything. */
   protected readonly state = computed<'denied' | 'loading' | 'error' | 'missing' | 'form'>(() => {
@@ -197,6 +210,9 @@ export class AlertRuleEditorPage implements HasUnsavedChanges {
 
   constructor() {
     const destroyRef = inject(DestroyRef);
+    const win = inject(DOCUMENT).defaultView;
+    win?.addEventListener('beforeunload', this.onBeforeUnload);
+    destroyRef.onDestroy(() => win?.removeEventListener('beforeunload', this.onBeforeUnload));
     const wiring = wireRuleForm(this.form, () => this.populating);
     destroyRef.onDestroy(() => wiring.unsubscribe());
 
@@ -271,6 +287,15 @@ export class AlertRuleEditorPage implements HasUnsavedChanges {
     return this.form.dirty && !this.saved();
   }
 
+  /** Page-leave warning for reload, tab close and outside links, only while there is something to lose. */
+  private readonly onBeforeUnload = (event: BeforeUnloadEvent): void => {
+    if (this.hasUnsavedChanges()) {
+      event.preventDefault();
+      // Older browsers need a return value to show their prompt.
+      event.returnValue = '';
+    }
+  };
+
   private populate(): void {
     const rule = this.rule();
     if (rule === null) {
@@ -283,6 +308,7 @@ export class AlertRuleEditorPage implements HasUnsavedChanges {
     } finally {
       this.populating = false;
     }
+    this.baseVersion.set(rule.version);
     this.populated.set(true);
     this.form.markAsPristine();
     this.form.markAsUntouched();
@@ -350,12 +376,18 @@ export class AlertRuleEditorPage implements HasUnsavedChanges {
     }
     const raw = this.form.getRawValue();
     const rule = this.rule();
+    const base = this.baseVersion();
+    if (this.editing && (rule === null || base === null)) {
+      return;
+    }
     this.submitting.set(true);
     try {
       const result =
-        this.editing && rule !== null
-          ? await this.store.update(rule.id, buildUpdateRequest(raw, rule.version))
+        this.editing && rule !== null && base !== null
+          ? await this.store.update(rule.id, buildUpdateRequest(raw, base))
           : await this.store.create(buildRuleRequest(raw));
+      // Editable again before the outcome is shown, so a field can take focus.
+      this.submitting.set(false);
       if (result.ok) {
         this.saved.set(true);
         void this.notifier.info('Rule saved');
@@ -384,7 +416,8 @@ export class AlertRuleEditorPage implements HasUnsavedChanges {
     const general = applyRuleProblem(this.form, problem);
     this.formError.set(general ?? 'The server did not accept some fields. See the messages below.');
     if (general === null) {
-      this.focusFirstInvalid();
+      // The fields are enabled again only after the next render.
+      afterNextRender(() => this.focusFirstInvalid(), { injector: this.injector });
     }
   }
 

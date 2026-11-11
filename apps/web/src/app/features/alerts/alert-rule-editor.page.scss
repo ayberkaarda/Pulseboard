@@ -57,6 +57,11 @@
   border-radius: var(--pb-radius-md);
 }
 
+// While a save is on its way the form is read only, so no edit can be lost.
+.form fieldset:disabled {
+  opacity: 0.7;
+}
+
 .problem-actions {
   display: flex;
   flex-wrap: wrap;

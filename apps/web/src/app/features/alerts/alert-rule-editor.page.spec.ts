@@ -6,6 +6,7 @@ import { render, screen, waitFor, within } from '@testing-library/angular';
 import userEvent from '@testing-library/user-event';
 
 import { errorInterceptor } from '../../core/http/interceptors';
+import { AlertRulesStore } from './alert-rules.store';
 import { Notifier } from '../../core/notify/notifier.service';
 import { SessionStore } from '../../core/session/session.store';
 import { StubPage } from '../../core/testing/auth-testing';
@@ -320,6 +321,62 @@ describe('AlertRuleEditorPage editing a rule', () => {
     await waitFor(() => expect(TestBed.inject(Router).url).toBe('/app/alerts/rules'));
   });
 
+  it('sends the version the form started from, so a toggle that finished meanwhile is a conflict, not a silent revert', async () => {
+    const { http, user, rule } = await renderEdit();
+    const store = TestBed.inject(AlertRulesStore);
+
+    // A toggle answered after the editor was filled moves the store to version 4.
+    const toggled = store.toggle(rule, false);
+    const patch = http.expectOne(`${LIST}/${rule.id}`);
+    expect(patch.request.method).toBe('PATCH');
+    patch.flush({ ...rule, enabled: false, version: 4 });
+    await toggled;
+
+    expect(await screen.findByText('This rule changed since you opened it.')).toBeInTheDocument();
+
+    const name = screen.getByLabelText(/^Rule name/);
+    await user.clear(name);
+    await user.type(name, 'Renamed');
+    await user.click(screen.getByRole('button', { name: 'Save rule' }));
+
+    const put = http.expectOne(`${LIST}/${rule.id}`);
+    expect(put.request.method).toBe('PUT');
+    expect(put.request.body).toMatchObject({ version: 3, enabled: true });
+    put.flush(...ruleProblem('version-conflict', 409));
+    expect(await screen.findByText(/This rule was changed elsewhere/)).toBeInTheDocument();
+  });
+
+  it('offers a reload when the rule changes in the store while the editor is open', async () => {
+    const { http, user, rule } = await renderEdit();
+    expect(screen.queryByText('This rule changed since you opened it.')).not.toBeInTheDocument();
+    const store = TestBed.inject(AlertRulesStore);
+
+    const toggled = store.toggle(rule, false);
+    http.expectOne(`${LIST}/${rule.id}`).flush({ ...rule, enabled: false, version: 4 });
+    await toggled;
+    await user.click(await screen.findByRole('button', { name: 'Reload the rule' }));
+
+    http.expectOne(LIST).flush([{ ...rule, enabled: false, version: 4 }]);
+    await waitFor(() =>
+      expect(screen.queryByText('This rule changed since you opened it.')).not.toBeInTheDocument(),
+    );
+    await user.click(screen.getByRole('button', { name: 'Save rule' }));
+    expect(http.expectOne(`${LIST}/${rule.id}`).request.body).toMatchObject({ version: 4 });
+  });
+
+  it('is read only while a save is pending, so no edit can be lost', async () => {
+    const { http, user, rule } = await renderEdit();
+    await user.click(screen.getByRole('button', { name: 'Save rule' }));
+
+    expect(screen.getByLabelText(/^Rule name/)).toBeDisabled();
+    expect(screen.getByLabelText(/^Threshold/)).toBeDisabled();
+    expect(document.querySelector('form')).toHaveAttribute('aria-busy', 'true');
+
+    const put = http.expectOne(`${LIST}/${rule.id}`);
+    put.flush(...ruleProblem('version-conflict', 409));
+    await waitFor(() => expect(screen.getByLabelText(/^Rule name/)).toBeEnabled());
+  });
+
   it('never overwrites on a version conflict: it says so and offers the latest version', async () => {
     const { http, user, rule, page } = await renderEdit();
     const name = screen.getByLabelText(/^Rule name/);
@@ -370,6 +427,46 @@ describe('AlertRuleEditorPage editing a rule', () => {
     http.expectOne('/api/v1/services').flush([SERVICE]);
     expect(await screen.findByText('This rule does not exist')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Save rule' })).not.toBeInTheDocument();
+  });
+});
+
+describe('AlertRuleEditorPage leaving the page', () => {
+  const leave = () => {
+    const event = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(event);
+    return event.defaultPrevented;
+  };
+
+  it('asks the browser to confirm only while the form has unsaved changes', async () => {
+    const { http, user } = await renderEditor();
+    await openCatalog(http);
+    expect(leave()).toBe(false);
+    await user.type(screen.getByLabelText(/^Rule name/), 'x');
+    expect(leave()).toBe(true);
+  });
+
+  it('stays quiet once the form is saved', async () => {
+    const { http, user } = await renderEditor();
+    await fillThresholdRule(user, http);
+    expect(leave()).toBe(true);
+    await user.click(screen.getByRole('button', { name: 'Save rule' }));
+    http.expectOne(LIST).flush(rawRule(), { status: 201, statusText: 'Created' });
+    await waitFor(() => expect(TestBed.inject(Router).url).toBe('/app/alerts/rules'));
+    expect(leave()).toBe(false);
+  });
+
+  it('removes its listener when the page is destroyed', async () => {
+    const add = jest.spyOn(window, 'addEventListener');
+    const remove = jest.spyOn(window, 'removeEventListener');
+    const { http, user, fixture } = await renderEditor();
+    await openCatalog(http);
+    await user.type(screen.getByLabelText(/^Rule name/), 'x');
+    const added = add.mock.calls.filter(([type]) => type === 'beforeunload');
+    expect(added).toHaveLength(1);
+
+    fixture.destroy();
+    expect(remove.mock.calls.filter(([type]) => type === 'beforeunload')).toEqual(added);
+    expect(leave()).toBe(false);
   });
 });
 
