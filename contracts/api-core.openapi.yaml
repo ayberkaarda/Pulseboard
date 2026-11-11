@@ -3,7 +3,7 @@ info:
   description: "Identity, tenancy, metric ingestion and queries, anomalies and their\
     \ live stream. Errors are RFC 9457 problem details (application/problem+json)."
   title: Pulseboard api-core
-  version: 0.7.0
+  version: 0.8.0
 servers:
 - description: Same origin
   url: /
@@ -156,7 +156,8 @@ paths:
   /api/v1/alert-rules:
     get:
       description: "All rules of the caller's tenant, oldest first (a tenant owns\
-        \ at most 50 by default)."
+        \ at most 50 by default). VIEWER users see the target of WEBHOOK rules masked\
+        \ to the host."
       operationId: listAlertRules
       responses:
         "200":
@@ -199,9 +200,10 @@ paths:
         \ of `<timestamp>.<raw body>`, keyed with the server's ALERT_WEBHOOK_SIGNING_SECRET.\
         \ A receiver recomputes it over the bytes it received, compares in constant\
         \ time, rejects old timestamps and deduplicates on the event id (delivery\
-        \ is at least once). Redirects are not followed. 2xx counts as delivered,\
-        \ 4xx other than 408 and 429 as a permanent failure, anything else is retried\
-        \ (4 attempts by default, 10 s, 60 s and 300 s apart)."
+        \ is at least once). Redirects are not followed: a 3xx answer is a permanent\
+        \ failure. 2xx counts as delivered, 4xx other than 408 and 429 as a permanent\
+        \ failure; a transport error, 408, 429 and 5xx are retried (4 attempts by\
+        \ default, 10 s, 60 s and 300 s apart)."
       operationId: createAlertRule
       requestBody:
         content:
@@ -1513,6 +1515,13 @@ components:
         id:
           type: string
           format: uuid
+        lastTriggeredAt:
+          type:
+          - string
+          - "null"
+          format: date-time
+          description: Time of the newest alert event of this rule; null if it never
+            fired.
         metricId:
           type: string
           format: uuid
@@ -1543,13 +1552,19 @@ components:
           - GTE
           - LT
           - LTE
+        serviceId:
+          type: string
+          format: uuid
+          description: Id of the service that owns the metric.
         serviceName:
           type: string
           description: Name of the service that owns the metric.
         target:
           type: string
           description: Webhook URL or e-mail label. Only visible to authenticated
-            users of the tenant; never written to logs in full.
+            users of the tenant; never written to logs in full. For VIEWER users the
+            target of a WEBHOOK rule is masked to its host (`https://hooks.example.com/***`);
+            OWNER and ADMIN see the full URL.
         threshold:
           type:
           - number
@@ -1571,12 +1586,14 @@ components:
       - createdBy
       - enabled
       - id
+      - lastTriggeredAt
       - metricId
       - metricName
       - metricUnit
       - minSeverity
       - name
       - operator
+      - serviceId
       - serviceName
       - target
       - threshold
