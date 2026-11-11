@@ -2,7 +2,7 @@
 
 [English](README.md) | Türkçe
 
-Pulseboard'un backend servisi: kimlik ve kiracılık (tenancy), metrik alımı ve sorgulama, servis ve metrik kataloğu, anomaliler ve bunların canlı akışı.
+Pulseboard'un backend servisi: kimlik ve kiracılık (tenancy), metrik alımı ve sorgulama, servis ve metrik kataloğu, anomaliler ve bunların canlı akışı, alarm kuralları ve webhook teslimi.
 Java 25, Spring Boot 4.1, sanal thread'ler üzerinde Spring Web MVC, Spring Security (JWT), Hibernate'li Spring Data JPA, Flyway, PostgreSQL 18 ve Redis 8.
 
 Tarayıcının ve metrik ajanlarının konuştuğu tek bileşen budur. `analytics` servisi ise imzalı bir dahili uç nokta üzerinden api-core'u geri çağırır.
@@ -13,10 +13,10 @@ Kök paket `io.pulseboard.core`. Katmanlama `api` -> `application` -> `domain` <
 
 | Katman | İçerik |
 |---|---|
-| `api` | Alanlara göre REST controller'ları ve DTO'lar: `auth`, `apikey`, `catalog` (servisler ve metrikler), `ingest`, `metrics` (sorgular), `anomaly`, `stream` (SSE ve biletler), `internal` (HMAC uç noktası), `ratelimit`, `error` (RFC 9457 problem details), `openapi` |
-| `application` | Kullanım senaryoları: `auth`, `apikey`, `catalog`, `ingest`, `query`, `anomaly`, `streamticket`, `ratelimit`, `tenancy`, `common` |
-| `domain` | Framework kodu içermeyen varlıklar ve kurallar: `tenancy`, `identity`, `catalog`, `metrics`, `anomaly`, `shared` |
-| `infrastructure` | Adaptörler: `persistence`, `security` (JWT, API anahtarı ve dahili HMAC filtreleri), `cache`, `ratelimit` (Redis token bucket), `ingest` (JDBC toplu upsert), `stream` (Redis pub/sub'dan SSE'ye), `anomaly`, `logging` (gizli değer maskeleme), `time` |
+| `api` | Alanlara göre REST controller'ları ve DTO'lar: `auth`, `apikey`, `catalog` (servisler ve metrikler), `ingest`, `metrics` (sorgular), `anomaly`, `alert` (kurallar ve geçmiş), `stream` (SSE ve biletler), `internal` (HMAC uç noktası), `ratelimit`, `error` (RFC 9457 problem details), `openapi` |
+| `application` | Kullanım senaryoları: `auth`, `apikey`, `catalog`, `ingest`, `query`, `anomaly`, `alert` (değerlendirme, outbox dağıtımı, webhook hedef denetimi ve imzalayıcı), `streamticket`, `ratelimit`, `tenancy`, `common` |
+| `domain` | Framework kodu içermeyen varlıklar ve kurallar: `tenancy`, `identity`, `catalog`, `metrics`, `anomaly`, `alert`, `shared` |
+| `infrastructure` | Adaptörler: `persistence`, `security` (JWT, API anahtarı ve dahili HMAC filtreleri), `cache`, `ratelimit` (Redis token bucket), `ingest` (JDBC toplu upsert), `stream` (Redis pub/sub'dan SSE'ye), `anomaly`, `alert` (JDBC outbox, Redis bekleme süresi, HTTP gönderici, açılış güvenlik denetimi), `logging` (gizli değer maskeleme), `time` |
 
 ## Uç noktalar
 
@@ -41,7 +41,26 @@ Esas kaynak [contracts/api-core.openapi.yaml](../../contracts/api-core.openapi.y
 | `POST /api/v1/anomalies/{id}/ack` | JWT | Anomaliyi onaylar |
 | `POST /api/v1/stream/ticket` | JWT | Tek kullanımlık akış bileti verir (kullanıcı başına dakikada 30) |
 | `GET /api/v1/stream/anomalies` | JWT bearer veya `?ticket=` | Yeni anomaliler için Server-Sent Events akışı |
+| `GET`, `POST /api/v1/alert-rules` | JWT | Kuralları listeler (her kullanıcı; viewer'lar webhook hedefini yalnızca ana makine adı olarak görür) veya bir kural oluşturur (owner veya admin) |
+| `GET`, `PUT`, `DELETE /api/v1/alert-rules/{id}` | JWT | Kuralı okur, değiştirir (düzenlemenin başladığı `version` ile) veya siler; değişiklikler owner ve admin içindir |
+| `PATCH /api/v1/alert-rules/{id}` | JWT | Kuralı açar veya kapatır (owner veya admin) |
+| `GET /api/v1/alert-events` | JWT | Alarm geçmişi, en yeniden eskiye, sayfalı; kurala, teslim durumuna ve tetiklenme zamanına göre süzülür |
+| `GET /api/v1/alert-events/{id}` | JWT | Tek bir alarm olayını içeriğiyle (payload) okur |
 | `POST /internal/v1/anomalies/notify` | `X-Internal-Signature` | analytics, anomalileri yazdıktan sonra çağırır; genel API'nin parçası değildir |
+
+## Alarm sistemi
+
+Bir kural, çağıranın kiracısına ait tek bir metriği izler (`THRESHOLD`: operatör ve sayı; `ANOMALY_SEVERITY`: asgari önem derecesi) ve `WEBHOOK` veya `EMAIL_LOG` ile bildirir. Bir kiracı varsayılan olarak en fazla 50 kurala sahip olabilir; adlar kiracı içinde benzersizdir; API anahtarları kural yönetemez.
+
+- **Değerlendirme.** Bir veri alımı grubu işlendikten (commit) sonra, metriklerinin etkin eşik kuralları değerlendirilir (5 saniye önbellek, metrik başına en fazla 20 ve grup başına 200 kural, bir kural grup başına en fazla bir kez tetiklenir, bir saatten eski veya beş dakikadan ileri noktalar yok sayılır). `POST /internal/v1/anomalies/notify`, bildirilen anomalilerin anomali kurallarını değerlendirir.
+- **Bekleme süresi ve bütçe.** Eşleşme, Redis'te `alert:cooldown:{ruleId}` anahtarını (`SET NX PX`, kuralın `cooldownSeconds` değeri, 60 ile 86400 arası) ve kiracı başına bir bütçeyi (`ALERT_EVENTS_PER_PERIOD`, saatte 600) talep eder. İkisi de kapalı yönde (fail closed) davranır: Redis kapalıyken olay oluşmaz.
+- **Outbox.** Tetiklenme bir `alert_event` satırı ekler (`PENDING`; `(rule_id, source_ref)` benzersiz anahtarı tekrarı etkisiz kılar). Her örnekteki bir yoklayıcı (`ALERT_DISPATCH_INTERVAL`, 5 sn), zamanı gelen satırları `FOR UPDATE SKIP LOCKED` ve 60 saniyelik bir kira (lease) ile alır ve küçük bir havuzda teslim eder. Başarısızlık 10 sn, 60 sn ve 300 sn sonra yeniden denenir (toplam 4 deneme, `ALERT_DISPATCH_MAX_ATTEMPTS`), sonra olay `FAILED` olur; başarı `SENT`'tir. Teslim en az bir kezdir (at least once).
+- **Webhook hedef denetimi.** Yalnızca `https`, DNS adı (IP değişmezi yok, kimlik bilgisi yok, `localhost` benzeri ad yok), port `ALERT_WEBHOOK_ALLOWED_PORTS` içinden; ad bir kez çözülür, her adres genel olmalıdır ve bağlantı bu adreslere sabitlenir. Denetim kayıt sırasında ve her teslimden önce yeniden çalışır; yönlendirmeler izlenmez, yanıt gövdesi hiç okunmaz.
+- **İmza.** `X-Pulseboard-Event-Id`, `X-Pulseboard-Timestamp` ve `X-Pulseboard-Signature` (`timestamp + "." + gövde` üzerinde, `ALERT_WEBHOOK_SIGNING_SECRET` anahtarlı, küçük harfli onaltılık HMAC-SHA256; en az 32 karakter). Gizli değer boşsa `WEBHOOK` kanalı kapalıdır ve onun için kural reddedilir; Compose gizli değeri zorunlu kılar.
+- **Güvensiz anahtarlar.** `ALERT_WEBHOOK_ALLOW_HTTP` ve `ALERT_WEBHOOK_ALLOW_PRIVATE_TARGETS` testler ve yerel geliştirme içindir; biri `test` ve `local` profilleri dışında açıksa `AlertSafetyCheck` uygulamayı durdurur.
+- **Metrikler.** `pulseboard.alerts.events.created`, `.events.suppressed`, `.deliveries`, `.evaluation.errors` ve `.email` sayaçları yönetim portunda sunulur (Prometheus adları, örneğin `pulseboard_alerts_deliveries_total`).
+
+Karar kaydı [ADR 0005](../../docs/ADR/0005-webhook-ssrf-and-outbox.md), akış [docs/ARCHITECTURE.md](../../docs/ARCHITECTURE.md#43-alerting), kabul edilen sınırlar [docs/KNOWN_LIMITATIONS.md](../../docs/KNOWN_LIMITATIONS.md) dosyasındadır (İngilizce).
 
 ## Güvenlik modeli
 
@@ -68,6 +87,7 @@ Flyway, `src/main/resources/db/migration`. `spring.jpa.hibernate.ddl-auto` değe
 | `V5__anomalies.sql` | En az yetkiyle `anomaly` ve `detector_state` |
 | `V6__refresh_family_lifetime.sql` | Mutlak oturum ömrü (`family_expires_at`) |
 | `V7__refresh_family_expiry_uniform.sql` | Refresh token ailesi başına tek bir bitiş zamanı |
+| `V8__alert_rules.sql` | `alert_rule` ve `alert_event` outbox tablosu, indeksleriyle |
 
 Aylık `metric_point` bölümleri önceden oluşturulur (`METRIC_PARTITIONS_MONTHS_AHEAD`, varsayılan 3); bunu hem açılışta hem her gün çalışan bir iş yapar. Veritabanı rolleri Flyway ile değil `infra/postgres/init` ile oluşturulur.
 
@@ -79,6 +99,15 @@ Varsayılanlar `src/main/resources/application.yml` içindedir; Compose ortamı 
 |---|---|---|
 | `JWT_SECRET` | yok, zorunlu | HS256 imza anahtarı, en az 32 bayt |
 | `INTERNAL_SHARED_SECRET` | yok, zorunlu | analytics ile paylaşılan HMAC anahtarı, en az 32 karakter |
+| `ALERT_WEBHOOK_SIGNING_SECRET` | yok, Compose'ta zorunlu | Alarm webhook'larını imzalar, en az 32 karakter; boşsa WEBHOOK kanalı kapalıdır |
+| `ALERT_WEBHOOK_ALLOWED_PORTS` | `443` | Webhook adresinin kullanabileceği portlar |
+| `ALERT_WEBHOOK_CONNECT_TIMEOUT`, `ALERT_WEBHOOK_READ_TIMEOUT`, `ALERT_DELIVERY_TIMEOUT` | `5s`, `5s`, `20s` | Webhook zaman aşımları ve tek bir teslimin kesin sınırı |
+| `ALERT_MAX_RULES_PER_TENANT`, `ALERT_MAX_RULES_PER_METRIC`, `ALERT_MAX_RULES_PER_BATCH` | `50`, `20`, `200` | Bir kiracının sahip olabileceği kurallar; metrik ve veri alımı grubu başına değerlendirilen kurallar |
+| `ALERT_RULE_CACHE_TTL`, `ALERT_MAX_POINT_AGE`, `ALERT_MAX_POINT_FUTURE` | `5s`, `1h`, `5m` | Kural önbellek ömrü; bir noktanın kural tetikleyebileceği, şimdinin etrafındaki pencere |
+| `ALERT_EVENTS_PER_PERIOD`, `ALERT_EVENTS_PERIOD` | `600`, `1h` | Bir kiracının oluşturabileceği alarm olayları; fazlası atılır ve sayılır |
+| `ALERT_DISPATCHER_ENABLED`, `ALERT_DISPATCH_INTERVAL`, `ALERT_DISPATCH_BATCH_SIZE`, `ALERT_DISPATCH_CONCURRENCY` | `true`, `5s`, `10`, `4` | Outbox yoklayıcısı |
+| `ALERT_DISPATCH_LEASE`, `ALERT_DISPATCH_MAX_ATTEMPTS`, `ALERT_DISPATCH_BACKOFF` | `60s`, `4`, `10s,60s,300s` | Talep kirası, olay başına deneme, denemeler arası bekleme |
+| `ALERT_HOST_FAILURE_THRESHOLD`, `ALERT_HOST_PAUSE` | `5`, `60s` | Bir alıcıya ardışık kaç başarısızlıktan sonra teslimlerinin duraklayacağı ve ne kadar |
 | `REFRESH_FAMILY_TTL` | `30d` | Mutlak oturum ömrü; 7 günlük refresh token'dan kısa olamaz |
 | `AUTH_RATE_LIMIT_CLIENT_CAPACITY` / `_PERIOD` | `30` / `1m` | İstemci adresi başına kimlik doğrulama istekleri |
 | `AUTH_RATE_LIMIT_ACCOUNT_CAPACITY` / `_PERIOD` | `10` / `15m` | Kiracı slug'ı ve e-posta başına giriş denemeleri |
@@ -109,7 +138,7 @@ cd apps/api-core
 | Görev | Amaç |
 |---|---|
 | `checkstyleMain`, `checkstyleTest` | Stil kuralları, sıfır uyarıya izin verilir |
-| `test` | Birim, entegrasyon, mimari ve saldırı senaryosu testleri (bu yazı hazırlanırken 374) |
+| `test` | Birim, entegrasyon, mimari ve saldırı senaryosu testleri; alarm kuralları, outbox teslimi ve webhook hedef denetimleri dahil |
 | `generateOpenApiDocs` | `contracts/api-core.openapi.yaml` dosyasını koddan yeniden yazar (`make openapi-gen`) |
 | `verifyOpenApiDocs` | Depodaki sözleşme koddan farklıysa başarısız olur |
 
