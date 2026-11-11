@@ -71,6 +71,10 @@ management:
   metrics:
     tags:
       application: ${spring.application.name}
+    distribution:
+      # Histogram buckets so Prometheus can compute request latency quantiles (observability dashboard).
+      percentiles-histogram:
+        http.server.requests: true
 
 springdoc:
   api-docs:

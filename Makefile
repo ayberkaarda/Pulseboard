@@ -1,7 +1,8 @@
 COMPOSE_BASE := docker compose --env-file .env -f infra/docker-compose.yml
 COMPOSE_DEV  := $(COMPOSE_BASE) -f infra/docker-compose.dev.yml
+COMPOSE_OBS  := $(COMPOSE_BASE) -f infra/docker-compose.observability.yml --profile observability
 
-.PHONY: up down test test-api test-analytics test-web lint openapi-gen check-env check-compose e2e e2e-down
+.PHONY: up down up-observability down-observability loadtest test test-api test-analytics test-web lint openapi-gen check-env check-compose e2e e2e-down
 
 check-env:
 	@test -f .env || (echo "Missing .env: copy .env.example to .env and set every value." && exit 1)
@@ -16,6 +17,19 @@ endif
 
 down: check-env
 	$(COMPOSE_BASE) down
+
+# Full stack plus Prometheus and Grafana (profile `observability`; Grafana on 127.0.0.1:$GRAFANA_PORT, default 3000).
+# Needs GRAFANA_ADMIN_PASSWORD in .env.
+up-observability: check-env
+	$(COMPOSE_OBS) up -d --build --wait
+
+# Stops everything started by up-observability, including Prometheus and Grafana (volumes are kept).
+down-observability: check-env
+	$(COMPOSE_OBS) down
+
+# k6 load test against the running stack through the web entry point; see docs/LOAD_TEST.md.
+loadtest:
+	docker run --rm -i -v "$(CURDIR)/scripts/loadtest:/loadtest:ro" -e BASE_URL=$${BASE_URL:-http://host.docker.internal:8081} grafana/k6:1.3.0 run /loadtest/pulseboard.js
 
 test: test-api test-analytics test-web
 

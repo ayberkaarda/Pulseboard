@@ -114,7 +114,54 @@ def main() -> int:
     print(f"[{'ok' if ok else 'FAIL'}] missing ALERT_WEBHOOK_SIGNING_SECRET is rejected")
     if not ok:
         failures.append(("api-core", "ALERT_WEBHOOK_SIGNING_SECRET", "required"))
+    failures += check_observability()
     return 1 if failures else 0
+
+
+def compose_config(extra_files: list[str], values: dict[str, str], profiles: list[str]) -> subprocess.CompletedProcess[str]:
+    with tempfile.TemporaryDirectory() as tmp:
+        env_file = Path(tmp) / "env"
+        env_file.write_text("".join(f"{k}={v}\n" for k, v in values.items()), encoding="utf-8")
+        cmd = ["docker", "compose", "--env-file", str(env_file), "-f", str(ROOT / "infra" / "docker-compose.yml")]
+        for name in extra_files:
+            cmd += ["-f", str(ROOT / "infra" / name)]
+        for profile in profiles:
+            cmd += ["--profile", profile]
+        return subprocess.run(
+            [*cmd, "config", "--format", "json"], cwd=ROOT, text=True, encoding="utf-8", capture_output=True
+        )  # fmt: skip
+
+
+def check_observability() -> list[tuple[str, str, str]]:
+    """The metrics stack is opt-in, needs its own secret and publishes only Grafana, on loopback."""
+    failures: list[tuple[str, str, str]] = []
+    obs = "docker-compose.observability.yml"
+
+    def verdict(label: str, ok: bool) -> None:
+        print(f"[{'ok' if ok else 'FAIL'}] {label}")
+        if not ok:
+            failures.append(("observability", label, "check"))
+
+    base = compose_config([], SECRETS, [])
+    verdict(
+        "the default stack (without the observability file) has neither prometheus nor grafana",
+        base.returncode == 0 and not {"prometheus", "grafana"} & set(json.loads(base.stdout)["services"]),
+    )
+    missing = compose_config([obs], SECRETS, ["observability"])
+    verdict(
+        "missing GRAFANA_ADMIN_PASSWORD is rejected with the observability profile",
+        missing.returncode != 0 and "GRAFANA_ADMIN_PASSWORD" in missing.stderr,
+    )
+    full = compose_config([obs], {**SECRETS, "GRAFANA_ADMIN_PASSWORD": "g" * 16}, ["observability"])
+    services = json.loads(full.stdout)["services"] if full.returncode == 0 else {}
+    verdict("observability profile renders prometheus and grafana", {"prometheus", "grafana"} <= set(services))
+    grafana_ports = services.get("grafana", {}).get("ports", [])
+    verdict(
+        "grafana is published on 127.0.0.1 only",
+        bool(grafana_ports) and all(p.get("host_ip") == "127.0.0.1" for p in grafana_ports),
+    )
+    verdict("prometheus publishes no port", not services.get("prometheus", {}).get("ports"))
+    return failures
 
 
 if __name__ == "__main__":

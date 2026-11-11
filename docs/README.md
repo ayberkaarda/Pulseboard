@@ -9,6 +9,7 @@ English | [Türkçe](#türkçe)
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Components and responsibilities, domain model, ingestion and detection flows, detector specifications, internal HMAC contract, one-time stream tickets, scheduling details, quality gates |
 | [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) | Behaviours that are deliberate or accepted for now |
 | [SECURITY_CHECKLIST.md](SECURITY_CHECKLIST.md) | OWASP ASVS 4.0.3 Level 1 self-assessment: status of every requirement with evidence, and the known gaps |
+| [LOAD_TEST.md](LOAD_TEST.md) | k6 load test, its measured results, and the optional Prometheus and Grafana stack |
 | [ADR](ADR/README.md) | Architecture decision records: [monorepo](ADR/0001-monorepo.md), [Postgres partitioning](ADR/0002-postgres-partitioning.md), [analytics role separation](ADR/0003-analytics-role-separation.md), [SSE over WebSocket](ADR/0004-sse-over-websocket.md), [webhook SSRF protection and outbox](ADR/0005-webhook-ssrf-and-outbox.md) |
 | [images](images) | Screenshots used by the READMEs (demo data only) |
 | [../contracts](../contracts) | `api-core.openapi.yaml`, `analytics.openapi.yaml` and the event JSON Schemas |
