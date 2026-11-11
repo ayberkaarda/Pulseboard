@@ -9,6 +9,7 @@ from dataclasses import dataclass
 import httpx2
 import structlog
 
+from pulseboard_analytics import metrics
 from pulseboard_analytics.budget import Budget
 from pulseboard_analytics.repositories.models import StoredAnomaly
 from pulseboard_analytics.security import SIGNATURE_HEADER, sign
@@ -96,6 +97,7 @@ class ApiCoreClient:
             watchdog.start()
         delivered = 0
         failed = 0
+        started = time.monotonic()
         try:
             for start in range(0, len(anomalies), MAX_BATCH):
                 batch = anomalies[start : start + MAX_BATCH]
@@ -104,6 +106,7 @@ class ApiCoreClient:
                 else:
                     failed += len(batch)
         finally:
+            metrics.notify_duration.observe(time.monotonic() - started)
             if watchdog is not None:
                 watchdog.cancel()
             client.close()
@@ -117,6 +120,7 @@ class ApiCoreClient:
             if budget is not None:
                 left = budget.remaining_seconds()
                 if left <= 0.0:
+                    metrics.notify_requests.labels(outcome="failed").inc()
                     _log.warning("notify_budget_spent", attempts=attempt - 1, count=count)
                     return False
                 timeout = min(timeout, left)
@@ -130,18 +134,23 @@ class ApiCoreClient:
                 outcome = type(error).__name__
             else:
                 if 200 <= status < 300:
+                    metrics.notify_requests.labels(outcome="ok").inc()
                     return True
                 if not _is_retryable(status):
+                    metrics.notify_requests.labels(outcome="failed").inc()
                     _log.warning("notify_rejected", status=status, count=count)
                     return False
                 outcome = f"status {status}"
             if attempt == MAX_ATTEMPTS:
+                metrics.notify_requests.labels(outcome="failed").inc()
                 _log.error("notify_failed", reason=outcome, attempts=attempt, count=count)
                 return False
             delay = BASE_DELAY_SECONDS * 2 ** (attempt - 1)
             if budget is not None and budget.remaining_seconds() <= delay:
+                metrics.notify_requests.labels(outcome="failed").inc()
                 _log.warning("notify_budget_spent", attempts=attempt, count=count)
                 return False
+            metrics.notify_requests.labels(outcome="retry").inc()
             _log.warning("notify_retry", reason=outcome, attempt=attempt)
             self._sleep(delay)
         return False

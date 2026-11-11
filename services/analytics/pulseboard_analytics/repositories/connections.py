@@ -11,6 +11,7 @@ statement is sent when it is spent. Callers without a budget wait at most the po
 """
 
 import threading
+import time
 import weakref
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -19,6 +20,7 @@ from math import ceil
 
 from sqlalchemy import Connection, Engine, event
 
+from pulseboard_analytics import metrics
 from pulseboard_analytics.budget import Budget, BudgetExhausted
 
 DEFAULT_POOL_TIMEOUT_SECONDS = 5.0
@@ -79,10 +81,16 @@ def connect(engine: Engine, budget: Budget | None = None) -> Iterator[Connection
     if budget is not None:
         wait = min(wait, budget.remaining_seconds())
         if wait <= 0.0:
+            metrics.db_pool_timeouts.labels(reason="budget").inc()
             raise BudgetExhausted("time budget exhausted before the connection checkout")
-    if not gate.semaphore.acquire(timeout=wait):
+    waited_from = time.monotonic()
+    got = gate.semaphore.acquire(timeout=wait)
+    metrics.db_pool_wait.inc(time.monotonic() - waited_from)
+    if not got:
         if budget is not None and budget.remaining_seconds() <= 0.0:
+            metrics.db_pool_timeouts.labels(reason="budget").inc()
             raise BudgetExhausted("time budget exhausted waiting for a connection")
+        metrics.db_pool_timeouts.labels(reason="pool_busy").inc()
         raise PoolBusyError(f"no database connection free within {wait:.1f}s")
     token = _connect_budget.set(budget)
     try:

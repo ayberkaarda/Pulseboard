@@ -10,6 +10,7 @@ from uuid import UUID
 import pandas as pd
 import structlog
 
+from pulseboard_analytics import metrics
 from pulseboard_analytics.budget import Budget, BudgetExhausted
 from pulseboard_analytics.detectors import isolation_forest, zscore
 from pulseboard_analytics.detectors.base import Detector, DetectorResult
@@ -114,6 +115,7 @@ class MetricScorer:
             stale = [metric_id for metric_id in self._forests if metric_id not in keep]
             for metric_id in stale:
                 del self._forests[metric_id]
+            metrics.forest_cache_entries.set(len(self._forests))
         return len(stale)
 
     def score_metric(self, metric: MetricRef, budget: Budget | None = None) -> ScoreOutcome:
@@ -149,6 +151,8 @@ class MetricScorer:
 
         results = annotate_bucketed(results, window)
         inserted = self.anomalies.insert_new(metric, results, budget)
+        for item in inserted:
+            metrics.anomalies_inserted.labels(detector=item.detector, severity=item.severity).inc()
         _log.info(
             "metric_scored",
             metric_id=str(metric.id),
@@ -210,12 +214,13 @@ class MetricScorer:
         frame = window.frame
         if state is not None and not isolation_forest.needs_retrain(state, window.raw_count, now):
             # A current snapshot exists but this process does not hold it: refit for local use.
-            forest = isolation_forest.train(frame, trained_at=now, version=state.version)
+            forest = self._train(frame, now, state.version)
+            metrics.model_trainings.labels(result="local").inc()
             return self._remember(metric.id, self._as_local(forest, state.identity))
 
         expected = None if state is None else state.version
         version = 1 if state is None else state.version + 1
-        forest = isolation_forest.train(frame, trained_at=now, version=version)
+        forest = self._train(frame, now, version)
         if budget is not None:
             budget.timeout_ms()  # raises BudgetExhausted: training may have used up the budget
         won = self.states.compare_and_set(
@@ -227,12 +232,22 @@ class MetricScorer:
             budget=budget,
         )
         if won:
+            metrics.model_trainings.labels(result="won").inc()
             return self._remember(metric.id, forest)
+        metrics.model_trainings.labels(result="lost").inc()
         winner = self.states.get(metric.id, Detector.ISOLATION_FOREST, budget)
         if winner is None:
             # The row is gone (the metric was deleted): use the model for this call only.
             return self._as_local(forest, "")
         return self._remember(metric.id, self._as_local(forest, winner.identity, winner.version))
+
+    @staticmethod
+    def _train(frame: pd.DataFrame, now: datetime, version: int) -> isolation_forest.TrainedForest:
+        try:
+            return isolation_forest.train(frame, trained_at=now, version=version)
+        except Exception:
+            metrics.model_trainings.labels(result="error").inc()
+            raise
 
     @staticmethod
     def _as_local(
@@ -249,4 +264,5 @@ class MetricScorer:
             self._forests.move_to_end(metric_id)
             while len(self._forests) > self.max_forests:
                 self._forests.popitem(last=False)
+            metrics.forest_cache_entries.set(len(self._forests))
         return forest

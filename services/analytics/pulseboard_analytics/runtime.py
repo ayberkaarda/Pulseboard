@@ -10,6 +10,7 @@ from sqlalchemy import Engine
 from pulseboard_analytics.clients.api_core import ApiCoreClient
 from pulseboard_analytics.jobs.score_all import RunSummary, score_all_metrics, start_scheduler
 from pulseboard_analytics.jobs.scoring import MetricScorer
+from pulseboard_analytics.metrics import MetricsServer
 from pulseboard_analytics.repositories.engines import make_engine
 from pulseboard_analytics.repositories.privileges import verify_database_roles
 from pulseboard_analytics.repositories.reader import MetricReader
@@ -31,6 +32,7 @@ class Runtime:
     reader: MetricReader
     scorer: MetricScorer
     scheduler: BackgroundScheduler | None = field(default=None)
+    metrics_server: MetricsServer | None = field(default=None)
 
     @classmethod
     def build(cls, settings: Settings) -> Runtime:
@@ -78,7 +80,9 @@ class Runtime:
             verify_database_roles(self.reader_engine, self.writer_engine)
 
     def start(self) -> None:
-        """Start the scheduler when enabled."""
+        """Start the metrics listener and the scheduler when enabled."""
+        if self.settings.metrics_enabled:
+            self.metrics_server = MetricsServer(self.settings.metrics_port)
         if self.settings.scheduler_enabled:
             self.scheduler = start_scheduler(self._safe_run, self.settings.score_interval_seconds)
 
@@ -89,7 +93,10 @@ class Runtime:
             _log.exception("score_all_crashed")
 
     def stop(self) -> None:
-        """Stop the scheduler and release connections."""
+        """Stop the scheduler and the metrics listener and release connections."""
+        if self.metrics_server is not None:
+            self.metrics_server.close()
+            self.metrics_server = None
         if self.scheduler is not None:
             self.scheduler.shutdown(wait=True)
             self.scheduler = None

@@ -8,6 +8,8 @@ from contextlib import contextmanager
 
 from redis import Redis
 
+from pulseboard_analytics import metrics
+
 _RELEASE_SCRIPT = """
 if redis.call('GET', KEYS[1]) == ARGV[1] then
     return redis.call('DEL', KEYS[1])
@@ -54,7 +56,9 @@ class RedisLock:
         if self._client.set(self._key, token, nx=True, px=self._ttl_ms):
             self._token = token
             self._acquired_at = started
+            metrics.lock_acquire.labels(result="acquired").inc()
             return True
+        metrics.lock_acquire.labels(result="busy").inc()
         return False
 
     def remaining_ms(self) -> float:

@@ -64,6 +64,9 @@ class Settings:
     lease_margin_seconds: int = 5
     db_pool_timeout_seconds: int = 5
     db_connect_timeout_seconds: int = 5
+    # Prometheus listener on its own port (never the main app); see metrics.py.
+    metrics_enabled: bool = True
+    metrics_port: int = 9100
 
     def __post_init__(self) -> None:
         # Same rule as api-core: not blank, and long enough once surrounding whitespace is gone.
@@ -74,6 +77,8 @@ class Settings:
                 f"INTERNAL_SHARED_SECRET must be at least {MIN_SECRET_LENGTH} "
                 "characters excluding surrounding whitespace"
             )
+        if not 0 <= self.metrics_port <= 65535:
+            raise SettingsError("METRICS_PORT must be between 1 and 65535")
         if self.score_deadline_seconds * 1000 >= self.lock_ttl_ms:
             raise SettingsError("SCORE_DEADLINE_SECONDS must be shorter than SCORE_LOCK_TTL_MS")
         if self.lease_margin_seconds * 1000 >= self.lock_ttl_ms:
@@ -99,4 +104,6 @@ class Settings:
             lease_margin_seconds=_positive_int(source, "SCORE_LEASE_MARGIN_SECONDS", 5),
             db_pool_timeout_seconds=_positive_int(source, "DB_POOL_TIMEOUT_SECONDS", 5),
             db_connect_timeout_seconds=_positive_int(source, "DB_CONNECT_TIMEOUT_SECONDS", 5),
+            metrics_enabled=_flag(source, "METRICS_ENABLED", True),
+            metrics_port=_positive_int(source, "METRICS_PORT", 9100),
         )

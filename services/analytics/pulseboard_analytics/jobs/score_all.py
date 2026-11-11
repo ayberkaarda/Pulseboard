@@ -26,6 +26,7 @@ import structlog
 from apscheduler.schedulers.background import BackgroundScheduler
 from redis import Redis
 
+from pulseboard_analytics import metrics as prom
 from pulseboard_analytics.budget import Budget, BudgetExhausted
 from pulseboard_analytics.clients.api_core import NotifyResult
 from pulseboard_analytics.jobs.scoring import WINDOW, MetricScorer
@@ -117,7 +118,9 @@ def score_all_metrics(
     started = monotonic()
     if not lock.acquire():
         _log.info("score_all_skipped", reason="lock held")
+        prom.score_runs.labels(result="skipped").inc()
         return RunSummary(skipped=True)
+    result = "error"
     try:
         lease_end = lock.expires_at()
         now = scorer.clock()
@@ -138,11 +141,13 @@ def score_all_metrics(
         pending: list[StoredAnomaly] = []
         failed = inserted = notified = unscored = 0
         resume_from: UUID | None = None
+        result = "completed"
         for position, metric in enumerate(ordered):
             reason = _stop_reason(
                 lock, started, deadline_seconds, lease_margin_seconds * 1000.0, monotonic
             )
             if reason is not None:
+                result = "deadline" if reason == "deadline reached" else "lost_lease"
                 unscored = len(ordered) - position
                 resume_from = metric.id if position < len(normal) else None
                 _log.warning("score_all_stopped", reason=reason, unscored_metrics=unscored)
@@ -151,6 +156,8 @@ def score_all_metrics(
                 outcome = scorer.score_metric(metric, Budget(lease_end, monotonic))
             except BudgetExhausted:
                 failed += 1
+                prom.metrics_failed.labels(reason="budget").inc()
+                result = "lost_lease"
                 unscored = len(ordered) - position
                 following = ordered[position + 1] if position + 1 < len(normal) else None
                 resume_from = None if following is None else following.id
@@ -160,21 +167,26 @@ def score_all_metrics(
             except MetricBusyError:
                 # Retried by the next run; the other metrics go on.
                 failed += 1
+                prom.metrics_failed.labels(reason="busy").inc()
                 _log.warning("metric_busy", metric_id=str(metric.id))
                 continue
             except Exception:
                 failed += 1
+                prom.metrics_failed.labels(reason="error").inc()
                 _log.exception("metric_scoring_failed", metric_id=str(metric.id))
                 continue
             if str(metric.id) in slow:
                 lock.guarded("HDEL", SLOW_KEY, str(metric.id))
             if outcome.failed:
                 failed += 1
+                prom.metrics_failed.labels(reason="all_detectors_failed").inc()
                 _log.error(
                     "metric_analysis_failed",
                     metric_id=str(metric.id),
                     detectors=[detector.value for detector in outcome.errors],
                 )
+            else:
+                prom.metrics_scored.inc()
             inserted += len(outcome.inserted)
             pending.extend(outcome.inserted)
             while len(pending) >= NOTIFY_BATCH:
@@ -183,6 +195,8 @@ def score_all_metrics(
         if pending:
             notified += _deliver(notifier, pending, Budget(lease_end, monotonic))
         _write_cursor(lock, resume_from)
+        prom.unscored_metrics.set(unscored)
+        prom.slow_metrics.set(len(slow))
         summary = RunSummary(
             metrics=len(metrics),
             failed_metrics=failed,
@@ -193,6 +207,8 @@ def score_all_metrics(
         _log.info("score_all_finished", **summary.__dict__)
         return summary
     finally:
+        prom.score_runs.labels(result=result).inc()
+        prom.score_run_duration.observe(monotonic() - started)
         lock.release()
 
 
