@@ -96,9 +96,9 @@ public class AlertRuleController {
                     + "`X-Pulseboard-Signature`: the lower-case hex HMAC-SHA256 of `<timestamp>.<raw body>`, keyed "
                     + "with the server's ALERT_WEBHOOK_SIGNING_SECRET. A receiver recomputes it over the bytes it "
                     + "received, compares in constant time, rejects old timestamps and deduplicates on the event id "
-                    + "(delivery is at least once). Redirects are not followed: a 3xx answer is a permanent failure. 2xx "
-                    + "counts as delivered, 4xx other than 408 and 429 as a permanent failure; a transport error, 408, "
-                    + "429 and 5xx are retried (4 attempts by default, 10 s, 60 s and 300 s apart).",
+                    + "(delivery is at least once). Redirects are not followed: a 3xx answer is a permanent failure. "
+                    + "2xx counts as delivered, 4xx other than 408 and 429 as a permanent failure; a transport "
+                    + "error, 408, 429 and 5xx are retried (4 attempts by default, 10 s, 60 s and 300 s apart).",
             responses = {
                 @ApiResponse(responseCode = "201", description = "The rule was created"),
                 @ApiResponse(responseCode = "400", description = "Invalid field, unknown metric or unacceptable "

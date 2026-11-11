@@ -31,9 +31,9 @@ public class JdbcAlertRuleRepository implements AlertRuleRepository {
 
     private static final String SELECT = """
             SELECT r.id, r.tenant_id, r.metric_id, m.name AS metric_name, m.unit AS metric_unit,
-                   s.id AS service_id, s.name AS service_name, r.name, r.condition, r.operator, r.threshold, r.min_severity,
-                   r.cooldown_seconds, r.channel, r.target, r.enabled, r.created_by, r.created_at, r.updated_at,
-                   r.version,
+                   s.id AS service_id, s.name AS service_name, r.name, r.condition, r.operator, r.threshold,
+                   r.min_severity, r.cooldown_seconds, r.channel, r.target, r.enabled, r.created_by,
+                   r.created_at, r.updated_at, r.version,
                    (SELECT max(e.triggered_at) FROM alert_event e
                      WHERE e.tenant_id = r.tenant_id AND e.rule_id = r.id) AS last_triggered_at
               FROM alert_rule r

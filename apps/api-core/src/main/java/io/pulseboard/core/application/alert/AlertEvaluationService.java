@@ -122,7 +122,10 @@ public class AlertEvaluationService {
         details.put("threshold", rule.threshold());
         details.put("operator", rule.operator().name());
         details.put("observedAt", point.timestamp().toString());
-        guarded(rule, point.metricId() == null ? point.timestamp().toString() : rule.metricId() + "@" + point.timestamp(), details);
+        String sourceRef = point.metricId() == null
+                ? point.timestamp().toString()
+                : rule.metricId() + "@" + point.timestamp();
+        guarded(rule, sourceRef, details);
     }
 
     /**
